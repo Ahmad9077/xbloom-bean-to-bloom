@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.tsbuildinfo
+coverage/
+web/dist/
+web/node_modules/
+artifacts/

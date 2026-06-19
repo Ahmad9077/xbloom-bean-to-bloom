@@ -1,0 +1,21 @@
+{
+  "name": "xbloom-recipe-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker: coffee-bean vision extraction → deterministic xBloom Studio recipe",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src test",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm run test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.9",
+    "wrangler": "^4.102.0"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "xbloom-local-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local Mac Appium service: drives xBloom Android app to create and save recipes",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "node --import tsx/esm src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src test",
+    "format": "biome format --write src test",
+    "test": "vitest run",
+    "check": "npm run format && npm run typecheck && npm run lint && npm run test && npm run build"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "webdriverio": "^9.12.4",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.0.0",
+    "@types/supertest": "^7.2.0",
+    "supertest": "^7.2.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4",
+    "vitest": "^4.1.9"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,20 @@
+name = "xbloom-recipe-worker"
+account_id = "cb8327c64dd8aba791c042b403b7e766"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = []
+
+[ai]
+binding = "AI"
+
+[vars]
+# Comma-separated allowed CORS origins.
+# Add your GitHub Pages domain and local dev origin here.
+# Example: "https://your-org.github.io,http://localhost:3000"
+ALLOWED_ORIGINS = "https://ahmad9077.github.io,http://localhost:3000,http://localhost:8787"
+
+# Secrets — set via CLI, never in source:
+#   wrangler secret put TURNSTILE_SECRET_KEY   (optional; omit to disable Turnstile)
+
+[dev]
+port = 8787
