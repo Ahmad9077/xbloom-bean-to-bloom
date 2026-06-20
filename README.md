@@ -1,190 +1,193 @@
 # xBloom Recipe Worker
 
-Cloudflare Worker that converts a coffee-bean bag photo into a validated xBloom Studio recipe.
+Cloudflare Worker that converts coffee-bean bag photos into validated xBloom Studio brewing recipes. Authenticated; stores recipes in D1; ships a cloud bridge queue for the Mac local service.
+
+---
 
 ## Architecture
 
-1. The client uploads a JPEG, PNG, or WebP image as multipart form data.
-2. The Worker calls the **Cloudflare Workers AI binding** server-side using model
-   `@cf/meta/llama-3.2-11b-vision-instruct` and extracts only bean metadata. Text
-   printed in the image is treated as untrusted data, not instructions. The model is
-   never told recipe numbers.
-3. A deterministic TypeScript engine—not the AI—selects brewing parameters, clamps
-   and quantises them to verified app limits, and validates the finished recipe.
+```
+Browser (SPA) → Cloudflare Worker (same-origin via Static Assets)
+                     │
+                     ├─ D1 database (users, sessions, recipes, bridge_jobs)
+                     └─ Workers AI (vision extraction, in-request scope only)
 
-No OpenAI API key or any external provider key is required. Vision inference runs
-entirely within the Cloudflare Workers AI binding.
-
-This project targets **xBloom Studio only**. The native integration mapping is
-`adaptedModel=2` / `J20`. Bean metadata is retained by this service but is not stored
-in a native xBloom recipe.
-
-There is no public xBloom authoring API. This Worker does not call xBloom endpoints or
-claim to add recipes directly to an account.
-
-## API
-
-- `GET /health`
-- `POST /v1/recipes/from-image`
-
-Upload requests use `multipart/form-data` with an `image` file. When Turnstile is
-enabled, also include `cf-turnstile-response` as a form field.
-
-Successful recipe responses contain `ok`, `requestId`, and `recipe`. Errors contain
-`ok`, `requestId`, and an `error` object with stable `code` and safe `message` fields.
-The health response contains `ok`, `requestId`, and `status`.
-
-Example:
-
-```sh
-curl -X POST https://example-worker.workers.dev/v1/recipes/from-image \
-  -F "image=@/path/to/coffee-bag.jpg"
+Mac local-service ← polls /api/bridge/jobs/next (bearer token)
+                  → POST /api/bridge/jobs/:id/complete
 ```
 
-## Public recipe schema
+### Key modules
 
-```json
-{
-  "name": "string",
-  "machine": "xBloom Studio",
-  "dripper": "Omni | xPod | Other",
-  "brewRatio": "1:N",
-  "totalVolumeMl": 160,
-  "doseG": 16,
-  "grindSize": 23,
-  "rpm": 90,
-  "pours": [
-    {
-      "label": "Bloom",
-      "volumeMl": 55,
-      "tempC": 93,
-      "flowRateMlPerSec": 3.0,
-      "pauseSec": 40,
-      "pattern": "centered | spiral | circular",
-      "agitationBefore": false,
-      "agitationAfter": false
-    }
-  ],
-  "bypass": {
-    "volumeMl": 20,
-    "tempC": 90
-  },
-  "bean": {
-    "coffeeType": "string",
-    "variety": "string",
-    "origin": "string",
-    "processingMethod": "string",
-    "roastLevel": "light | medium | dark",
-    "flavors": ["string"],
-    "description": "string"
-  }
-}
-```
-
-`bypass` is optional.
-
-## Verified native constraints
-
-| Field | Constraint |
+| Path | Role |
 |---|---|
-| Dose | Integer, 5–18 g |
-| Ratio | `1:5`–`1:25`; `totalVolumeMl = doseG × N` |
-| Grind size | Integer, 1–80 |
-| RPM | 60–120, step 10 |
-| Generated pour volume | Positive integer, at most 240 ml |
-| Temperature | Integer, 40–95 °C |
-| Flow rate | 3.0–3.5 ml/s, step 0.1 |
-| Pause | Integer, 0–59 seconds; this is a pause, not pour duration |
-| Pattern | `centered`, `spiral`, or `circular` |
-| Agitation | Boolean before/after controls |
-| Optional bypass | 5–100 ml; 40–95 °C |
+| `src/index.ts` | Router, SPA protection, scheduled handler |
+| `src/db.ts` | All D1 query helpers |
+| `src/auth/password.ts` | PBKDF2-HMAC-SHA256 hashing |
+| `src/auth/session.ts` | Cookie generation/parsing |
+| `src/auth/middleware.ts` | `requireAuth`, `requireAdmin`, `enforceSameOrigin` |
+| `src/auth/bridge-token.ts` | Bridge bearer-token validation |
+| `src/routes/auth.ts` | Login, logout, me |
+| `src/routes/recipes.ts` | Recipe generation + history |
+| `src/routes/admin.ts` | User management |
+| `src/routes/bridge.ts` | Bridge queue endpoints |
+| `src/vision.ts` | Workers AI extraction (beanName + multi-image) |
+| `src/recipe.ts` | Deterministic recipe generation |
+| `src/sanitize.ts` | Username and model-string sanitization |
 
-Pour volumes plus optional bypass volume must equal `totalVolumeMl` exactly. The app
-also exposes RT/BP temperature sentinels, but this engine emits numeric temperatures
-only.
+---
 
-Service-only safety limits—not xBloom native limits—are: recipe names at most 200
-characters; primary bean text fields at most 100 characters; descriptions at most 200;
-at most 20 flavors; and each flavor at most 50 characters.
+## Security overview
 
-## Setup and verification
+### Authentication
+- Username login only. Passwords hashed with PBKDF2-HMAC-SHA256 (100,000 iterations, Cloudflare Workers' supported maximum, 16-byte random salt, 32-byte key). Encoded: `pbkdf2$sha256$100000$<base64url-salt>$<base64url-hash>`. Hash format stores the iteration count for future migration.
+- Session: 32-byte random token, SHA-256 stored in D1. Cookie `__Host-xbloom_session` (Secure, HttpOnly, SameSite=Lax, Path=/, Max-Age 604800).
+- Constant-time password comparison; dummy hash execution for unknown usernames to resist timing-based enumeration. Generic "Invalid username or password" error regardless of failure reason.
+- Session invalidated on password change, role change, or enabled toggle via `auth_version` increment.
 
-Prerequisites: Node.js, npm, a Cloudflare account, and Wrangler authentication.
+### Rate limiting
+- Login: max 5 failures per username+IP-hash in 15 minutes → 429.
+- Recipe generation: max 10 per user per hour → 429.
 
-```sh
+### Input validation
+- Username: NFKC normalize, trim, 3–32 chars, `[\p{L}\p{N}._-]` only, no control/HTML delimiters.
+- Password: min 12, max 128, not all-whitespace.
+- Image magic bytes validated (JPEG/PNG/WebP), max 10 MB per file, 20 MB combined, 1–4 files.
+- AI-sourced strings sanitized (control chars and `< > & " '` stripped, length capped, NFKC).
+
+### Same-origin enforcement
+Mutation API routes check the `Origin` header when present and reject cross-origin requests. Non-browser requests (no `Origin` header, e.g. bridge service) are allowed through.
+
+### CSP / security headers
+All responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`. API responses use `default-src 'none'`. SPA asset responses use a SPA-appropriate CSP.
+
+### Error logging
+Logs contain only fixed-category error codes and request IDs. User data, recipe JSON, image bytes/base64, credentials, and session tokens are never logged.
+
+### Image privacy
+Image bytes exist only in memory during the request scope; they are passed to Workers AI and discarded. Nothing image-related is written to D1, logs, or any storage. No temp files are created (and therefore no cleanup is needed).
+
+---
+
+## Database migration
+
+> Historical note: native xBloom Studio recipes created inside the xBloom app and stored on device were **never** stored by this application. All tables are created fresh with `CREATE TABLE IF NOT EXISTS`; no existing data is affected.
+
+```bash
+# Create the database (once per account):
+wrangler d1 create xbloom-db
+
+# Update wrangler.toml with the returned database_id, then:
+npm run migrate:remote   # production
+npm run migrate:local    # local dev
+```
+
+---
+
+## Bootstrap: create first admin
+
+```bash
+node scripts/create-admin.mjs --username=admin --remote
+# Prompts for password (read from stdin, never process args or env)
+
+# Force-reset primary admin password:
+node scripts/create-admin.mjs --username=admin --force-reset-primary --remote
+```
+
+The script reads the password from stdin with no echo. It uses the same PBKDF2 parameters as the runtime. The plaintext password is never placed in command-line arguments, environment variables, source code, or logs. On this Mac, the deployed primary account is `admin`; its generated bootstrap password is stored in macOS Keychain under service `xBloom Bean to Bloom Admin`, account `admin`.
+
+---
+
+## Private recipe links
+
+Recipes are identified by UUID (not sequential IDs) generated server-side. The link `/recipes/<uuid>` is only accessible by the recipe owner; any other authenticated user requesting the same path receives an indistinguishable 404. There are no public recipe endpoints.
+
+---
+
+## Bridge queue: root cause and fix
+
+### Why "Bridge not available" appeared on iPhone
+
+The old SPA called `http://127.0.0.1:3999`. On an iPhone, that loopback address resolves to the **iPhone itself**, not the Mac running the bridge service. The Mac service listens on `127.0.0.1:3999` (loopback-only), so it is physically unreachable from another device via that address. Browser Private Network Access (PNA) and mixed-context rules (HTTPS page → HTTP endpoint) also block the call.
+
+### Permanent fix: cloud D1 bridge queue
+
+The browser posts a bridge job to `/api/recipes/:id/bridge-jobs`. The Mac local service polls the cloud endpoint `/api/bridge/jobs/next` (public HTTPS, bearer-token authenticated) and completes jobs via `/api/bridge/jobs/:id/complete`. No device-local networking is required.
+
+### Mac service setup
+
+```bash
+# Generate a random bearer token (Mac) without writing it to the repo:
+BRIDGE_TOKEN="$(openssl rand -hex 32)"
+security add-generic-password -U -a bridge -s "xBloom Bean to Bloom Bridge Token" -w "$BRIDGE_TOKEN"
+
+# Compute its SHA-256:
+printf %s "$BRIDGE_TOKEN" | shasum -a 256 | awk '{print $1}'
+
+# Store the hash in the Worker:
+wrangler secret put BRIDGE_TOKEN_HASH   # paste the SHA-256 hex
+
+# Clear the shell variable after configuring the Worker secret:
+unset BRIDGE_TOKEN
+
+# The Mac service reads the plaintext token from Keychain and passes it as:
+#   Authorization: Bearer <BRIDGE_TOKEN>
+```
+
+---
+
+## Setup and deployment
+
+```bash
 npm install
-npm run check
-npm run dev
+npm run check          # typecheck + lint + test
+npm run audit:high     # security audit
+npm run dev            # local Worker dev (port 8787)
+npm run deploy         # build SPA + deploy Worker
 ```
 
-Tests require no network access or API key. They inject a narrow mock AI binding and
-use synthetic signature-valid image bytes.
+### Secrets (set via Wrangler, never in source)
 
-## Cloudflare Workers AI — free allocation
+| Secret | Purpose |
+|---|---|
+| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile CAPTCHA (optional) |
+| `BRIDGE_TOKEN_HASH` | SHA-256 hex of Mac bridge bearer token |
 
-This Worker uses the Cloudflare Workers AI binding bound as `AI` (declared in
-`wrangler.toml` under `[ai]`). The binding is available at no charge on the
-**Workers Free plan** with an allocation of **10,000 neurons per day**. Requests that
-exceed the daily allocation fail until the allocation resets; they do not bill
-automatically.
+## Production deployment on this Mac
 
-**Keep the Cloudflare Workers Free plan** if zero-cost operation is required. Upgrading
-to Workers Paid removes the daily allocation cap and will incur charges per request
-beyond the included quota.
+- Worker and SPA: `https://xbloom-recipe-worker.wld-cba.workers.dev`
+- D1 database: `xbloom-db`; migrations run with `npm run migrate:remote`
+- Durable bridge runtime: `~/.codex/xbloom-bridge/app`
+- LaunchAgent: `~/Library/LaunchAgents/com.xbloom.bean-to-bloom-bridge.plist`
+- LaunchAgent label: `com.xbloom.bean-to-bloom-bridge`
 
-## Meta license acceptance (required before first use)
+The bridge runtime is intentionally copied outside Documents because macOS privacy controls prevented a background LaunchAgent from reading the project directory. It is launched at login and kept alive. The Android app must remain logged in to the same xBloom account used on the iPhone.
 
-The model `@cf/meta/llama-3.2-11b-vision-instruct` is subject to Meta's license and
-Acceptable Use Policy. You must accept the license once per Cloudflare account before
-the model will serve requests.
+## Data lifecycle and deletion policy
 
-Accept the license through the **Cloudflare dashboard** or **AI Playground** — do not
-pass account tokens or credentials in shell commands or files. No shell command or
-environment variable is needed in this project; the accepted license is stored at the
-account level by Cloudflare.
+- Recipes and sessions persist in D1 across browser closes, Worker deployments, and Mac restarts.
+- Deleting a user permanently cascades to that user's recipes, sessions, recipe-attempt records, and bridge jobs. The Admin Dashboard displays this consequence before confirmation.
+- Existing pre-migration native xBloom app recipes were not part of this site's storage and are unchanged.
+- Uploaded images are never stored: Workers receive multipart bytes in memory, validate and analyze them, then the request scope is discarded on both success and failure.
 
-Until the license is accepted, Workers AI requests for this model will fail with a
-license or permission error.
+---
 
-## Configuration
+## API reference
 
-Configuration variable in `wrangler.toml`:
-
-- `ALLOWED_ORIGINS`: comma-separated exact origins. Cross-origin access is denied by
-  default unless the request origin is listed.
-
-Optional secret (Turnstile CAPTCHA verification):
-
-```sh
-npx wrangler secret put TURNSTILE_SECRET_KEY
-```
-
-Never pass secret values as shell arguments; use the interactive `wrangler secret put`
-prompt.
-
-The Workers AI binding does not require a secret. It is declared as:
-
-```toml
-[ai]
-binding = "AI"
-```
-
-## Deploy
-
-```sh
-npm run deploy
-```
-
-Deployment requires Wrangler authentication and that the Meta license has been
-accepted at the account level (see above). The Worker will fail requests until the
-license is accepted.
-
-Real-photo smoke testing remains pending: Cloudflare login, Meta license acceptance,
-deployment to a live Worker URL, and a physical coffee-bag photo are all required.
-Synthetic tests establish request handling, validation, security behaviour, and
-deterministic recipe generation.
-
-## Limits
-
-- The 10 MB upload maximum is a Worker service limit, not an xBloom limit.
-- Phase 3 provides no persistence or account automation. Those are separate phases.
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/auth/login` | — | Login, sets session cookie |
+| POST | `/api/auth/logout` | session | Invalidate session |
+| GET | `/api/auth/me` | session | Current user |
+| POST | `/api/recipes/from-images` | session | Generate recipe from 1–4 bag photos |
+| GET | `/api/recipes` | session | Recipe history (owner only, desc) |
+| GET | `/api/recipes/:id` | session (owner) | Single recipe |
+| POST | `/api/recipes/:id/bridge-jobs` | session (owner) | Queue recipe for Mac bridge |
+| GET | `/api/recipes/:id/bridge-jobs` | session (owner) | Bridge job status |
+| GET | `/api/admin/users` | admin | List users with recipe counts |
+| POST | `/api/admin/users` | admin | Create user |
+| PATCH | `/api/admin/users/:id` | admin | Reset password / toggle enabled / change role |
+| DELETE | `/api/admin/users/:id` | admin | Delete user (cascades recipes/sessions) |
+| GET | `/api/bridge/jobs/next` | bridge bearer | Claim next pending job |
+| POST | `/api/bridge/jobs/:id/complete` | bridge bearer | Mark job completed or failed |
+| GET | `/health` | — | Health check |
+| POST | `/v1/recipes/from-image` | — | **Deprecated** → 401 with migration guidance |
