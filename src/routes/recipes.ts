@@ -9,12 +9,12 @@ import {
 } from "../db.js";
 import { ClientError, NotFoundError, PayloadTooLargeError, RateLimitError } from "../errors.js";
 import { extractImagesFromFormData } from "../image.js";
-import { analyzeAndRecommend } from "../openai.js";
+import { recommendRecipe } from "../openai.js";
 import { validateRecipeInvariants } from "../recipe.js";
 import { sanitizeModelString } from "../sanitize.js";
 import { verifyTurnstile } from "../turnstile.js";
 import type { BeanMetadata, Env, Recipe } from "../types.js";
-import { validateBeanMetadata } from "../vision.js";
+import { extractBeanMetadata } from "../vision.js";
 
 const EN_DASH = "–";
 const RECIPE_PATH_PREFIX = "/recipes/";
@@ -56,8 +56,8 @@ export async function handleFromImages(
   // Record attempt BEFORE calling AI (counts whether or not AI succeeds)
   await recordRecipeAttempt(env.DB, ctx.userId);
 
-  const result = await analyzeAndRecommend(images, brewMode, env);
-  const bean = validateBeanMetadata(result.bean);
+  // Cloudflare Workers AI extracts the photos. OpenAI receives text metadata only.
+  const bean = await extractBeanMetadata(images, env);
 
   // Sanitize model-sourced strings
   const safeBeanName = sanitizeModelString(bean.beanName, 100).trim() || "Unknown Bean";
@@ -75,8 +75,10 @@ export async function handleFromImages(
     description: sanitizeModelString(bean.description, 200),
   };
 
+  const recommended = await recommendRecipe(sanitizedBean, brewMode, env);
+
   const recipeName = `${ctx.username} ${EN_DASH} ${safeBeanName}`;
-  const { icedServing, ...recipeCore } = result.recipe;
+  const { icedServing, ...recipeCore } = recommended;
   const recipe: Recipe = {
     ...recipeCore,
     name: recipeName,

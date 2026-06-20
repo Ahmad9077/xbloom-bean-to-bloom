@@ -15,7 +15,7 @@ export interface Env {
 }
 
 // ---------------------------------------------------------------------------
-// Bean metadata (extracted by OpenAI vision)
+// Bean metadata (extracted by Cloudflare Workers AI vision)
 // ---------------------------------------------------------------------------
 
 export type RoastLevel = "light" | "medium" | "dark";

@@ -22,6 +22,7 @@ import {
   MEDIUM_BEAN,
   MOCK_ENV,
   makeJpegBytes,
+  makeMockAIBean,
   makePngBytes,
   makeWebpBytes,
 } from "./fixtures.js";
@@ -29,10 +30,12 @@ import {
 vi.stubGlobal("fetch", vi.fn());
 
 let db: ReturnType<typeof makeTestDb>;
+let visionBean = LIGHT_BEAN;
 
 function makeEnv(extras: Record<string, unknown> = {}): Env {
   return {
     ...MOCK_ENV,
+    AI: makeMockAIBean(visionBean),
     DB: db,
     OPENAI_API_KEY: "test-openai-key",
     ...extras,
@@ -45,6 +48,7 @@ beforeEach(() => {
 });
 
 function mockOpenAI(bean = LIGHT_BEAN, brewMode: "cold" | "hot" = "cold") {
+  visionBean = bean;
   const generated = generateRecipe(bean, "Omni", brewMode);
   const {
     name: _name,
@@ -61,7 +65,7 @@ function mockOpenAI(bean = LIGHT_BEAN, brewMode: "cold" | "hot" = "cold") {
         JSON.stringify({
           output: [
             {
-              content: [{ type: "output_text", text: JSON.stringify({ bean, recipe }) }],
+              content: [{ type: "output_text", text: JSON.stringify(recipe) }],
             },
           ],
         }),
