@@ -10,7 +10,7 @@ Cloudflare Worker that converts coffee-bean bag photos into validated xBloom Stu
 Browser (SPA) → Cloudflare Worker (same-origin via Static Assets)
                      │
                      ├─ D1 database (users, sessions, recipes, bridge_jobs)
-                     └─ Workers AI (vision extraction, in-request scope only)
+                     └─ OpenAI Responses API (vision + recipe, request scope only)
 
 Mac local-service ← polls /api/bridge/jobs/next (bearer token)
                   → POST /api/bridge/jobs/:id/complete
@@ -30,9 +30,9 @@ Mac local-service ← polls /api/bridge/jobs/next (bearer token)
 | `src/routes/recipes.ts` | Recipe generation + history |
 | `src/routes/admin.ts` | User management |
 | `src/routes/bridge.ts` | Bridge queue endpoints |
-| `src/vision.ts` | Workers AI extraction (beanName + multi-image) |
+| `src/openai.ts` | GPT-5.5 multi-image analysis and structured recipe generation |
+| `src/vision.ts` | Strict bean-metadata validation |
 | `src/recipe.ts` | xBloom Studio recipe validation and legacy deterministic fallback helpers |
-| `src/routes/recommendations.ts` | Private D1 queue between the Worker and Mac Codex recommender |
 | `src/sanitize.ts` | Username and model-string sanitization |
 
 ---
@@ -65,7 +65,7 @@ All responses carry `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, 
 Logs contain only fixed-category error codes and request IDs. User data, recipe JSON, image bytes/base64, credentials, and session tokens are never logged.
 
 ### Image privacy
-Image bytes exist only in memory during the request scope; they are passed to Workers AI and discarded. Nothing image-related is written to D1, logs, or any storage. No temp files are created (and therefore no cleanup is needed).
+Image bytes exist only in memory during the request scope; they are sent directly to the OpenAI Responses API with `store: false` and then discarded by this application. Nothing image-related is written to D1, logs, or application storage. No temp files are created (and therefore no local cleanup is needed).
 
 ---
 
@@ -150,17 +150,19 @@ npm run deploy         # build SPA + deploy Worker
 
 | Secret | Purpose |
 |---|---|
+| `OPENAI_API_KEY` | Server-side OpenAI API access for bag analysis and recipe generation |
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile CAPTCHA (optional) |
 | `BRIDGE_TOKEN_HASH` | SHA-256 hex of Mac bridge bearer token |
 
 ## AI recommendation flow
 
-Workers AI reads the uploaded bag photos and stores only sanitized bean text in a private D1 job.
-The authenticated Mac bridge claims that job and runs an isolated, ephemeral Codex CLI request
-using `gpt-5.4-mini` with tools, plugins, browsing, memory, and shell access disabled. The Worker
-overwrites identity fields from the authenticated job, validates every xBloom Studio field and
-only then stores the recipe. A Codex usage-limit failure is shown to the user; it does not silently
-substitute a generic recipe.
+The Worker sends all uploaded bag photos in one multimodal GPT-5.5 Responses API request. The model
+extracts the visible bean data and recommends a bean-specific xBloom Studio recipe using strict
+structured output. The request sets `store: false`; application logs and D1 never receive image
+bytes. The Worker derives the username from the authenticated session, overwrites trusted identity
+fields, sanitizes model text, validates every xBloom Studio field, and only then stores the recipe.
+OpenAI failures and spending-limit errors are reported safely; the app does not silently substitute
+a generic recipe.
 
 After Appium saves the recipe, it asks the official xBloom app to create a share link. Only HTTPS
 links on `share-h5.xbloom.com` are accepted and returned to the recipe owner.

@@ -66,13 +66,6 @@ export interface BridgeJob {
   shareLink?: string | null;
 }
 
-export interface RecommendationJob {
-  id: string;
-  status: "pending" | "claimed" | "completed" | "failed";
-  recipeId?: string | null;
-  safeError?: string | null;
-}
-
 export interface AdminUser {
   id: string;
   username: string;

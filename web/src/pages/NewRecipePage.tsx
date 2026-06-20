@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ApiError, apiCreateRecipe, apiGetRecommendation, compressImage } from "../api.js";
+import { ApiError, apiCreateRecipe, compressImage } from "../api.js";
 import BrewModeSelector from "../components/BrewModeSelector.js";
 import MultiPhotoUpload from "../components/MultiPhotoUpload.js";
 import StepProgress from "../components/StepProgress.js";
@@ -49,9 +49,7 @@ export default function NewRecipePage() {
     try {
       const result = await apiCreateRecipe(compressed, brewMode);
       setFiles([]);
-      setStage({ kind: "loading", message: "Codex is designing a bean-specific recipe…" });
-      const recipeId = await waitForRecommendation(result.job.id);
-      navigate(`/recipes/${recipeId}`);
+      navigate(`/recipes/${result.id}`);
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -150,16 +148,4 @@ export default function NewRecipePage() {
       </div>
     </main>
   );
-}
-
-async function waitForRecommendation(jobId: string): Promise<string> {
-  for (let attempt = 0; attempt < 120; attempt++) {
-    const job = await apiGetRecommendation(jobId);
-    if (job.status === "completed" && job.recipeId) return job.recipeId;
-    if (job.status === "failed") {
-      throw new Error(job.safeError || "Codex could not create this recipe. Please try again.");
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-  }
-  throw new Error("Recipe recommendation timed out. Please try again.");
 }

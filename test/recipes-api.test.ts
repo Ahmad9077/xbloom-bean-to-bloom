@@ -13,6 +13,7 @@ import {
 } from "../src/auth/session.js";
 import { createSession, createUser, storeRecipe } from "../src/db.js";
 import worker from "../src/index.js";
+import { generateRecipe } from "../src/recipe.js";
 import type { Env } from "../src/types.js";
 import { makeTestDb } from "./db-mock.js";
 import {
@@ -21,7 +22,6 @@ import {
   MEDIUM_BEAN,
   MOCK_ENV,
   makeJpegBytes,
-  makeMockAIBean,
   makePngBytes,
   makeWebpBytes,
 } from "./fixtures.js";
@@ -31,12 +31,45 @@ vi.stubGlobal("fetch", vi.fn());
 let db: ReturnType<typeof makeTestDb>;
 
 function makeEnv(extras: Record<string, unknown> = {}): Env {
-  return { ...MOCK_ENV, DB: db, AI: makeMockAIBean(LIGHT_BEAN), ...extras } as unknown as Env;
+  return {
+    ...MOCK_ENV,
+    DB: db,
+    OPENAI_API_KEY: "test-openai-key",
+    ...extras,
+  } as unknown as Env;
 }
 
 beforeEach(() => {
   db = makeTestDb();
+  mockOpenAI(LIGHT_BEAN);
 });
+
+function mockOpenAI(bean = LIGHT_BEAN, brewMode: "cold" | "hot" = "cold") {
+  const generated = generateRecipe(bean, "Omni", brewMode);
+  const {
+    name: _name,
+    machine: _machine,
+    dripper: _dripper,
+    brewMode: _mode,
+    bean: _bean,
+    ...core
+  } = generated;
+  const recipe = { ...core, icedServing: generated.icedServing ?? null };
+  vi.mocked(fetch).mockImplementation(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          output: [
+            {
+              content: [{ type: "output_text", text: JSON.stringify({ bean, recipe }) }],
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    ),
+  );
+}
 afterEach(() => {
   db.close();
 });
@@ -120,19 +153,18 @@ describe("POST /api/recipes/from-images — auth", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/recipes/from-images — happy path", () => {
-  it("returns 202 with a pending recommendation job", async () => {
+  it("returns 201 with a validated recipe", async () => {
     const { cookieHeader } = await createTestSession();
     const req = makeImagesRequest(
       [{ bytes: makeJpegBytes(), name: "bag.jpg", mime: "image/jpeg" }],
       cookieHeader,
     );
     const res = await worker.fetch(req, makeEnv());
-    expect(res.status).toBe(202);
+    expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.ok).toBe(true);
-    const job = body.job as Record<string, unknown>;
-    expect(typeof job.id).toBe("string");
-    expect(job.status).toBe("pending");
+    expect(typeof body.id).toBe("string");
+    expect((body.recipe as { machine: string }).machine).toBe("xBloom Studio");
   });
 
   it("recipe name is server-assigned: Username – BeanName (en dash)", async () => {
@@ -143,15 +175,7 @@ describe("POST /api/recipes/from-images — happy path", () => {
     );
     const res = await worker.fetch(req, makeEnv());
     const body = (await res.json()) as Record<string, unknown>;
-    const jobId = (body.job as { id: string }).id;
-    const row = await db
-      .prepare("SELECT * FROM recommendation_jobs WHERE id = ?")
-      .bind(jobId)
-      .first<{
-        username_display: string;
-        bean_name: string;
-      }>();
-    const name = `${row?.username_display} – ${row?.bean_name}`;
+    const name = (body.recipe as { name: string }).name;
     // Name must start with the display username
     expect(name).toContain(username);
     // Must contain an en dash
@@ -162,22 +186,17 @@ describe("POST /api/recipes/from-images — happy path", () => {
 
   it("recipe name uses 'Unknown Bean' when beanName is empty", async () => {
     const { cookieHeader } = await createTestSession({ username: "Bob" });
-    const emptyBeanNameAI = makeMockAIBean({ ...LIGHT_BEAN, beanName: "" });
+    mockOpenAI({ ...LIGHT_BEAN, beanName: "" });
     const req = makeImagesRequest(
       [{ bytes: makeJpegBytes(), name: "bag.jpg", mime: "image/jpeg" }],
       cookieHeader,
     );
-    const res = await worker.fetch(req, makeEnv({ AI: emptyBeanNameAI }));
+    const res = await worker.fetch(req, makeEnv());
     const body = (await res.json()) as Record<string, unknown>;
-    const jobId = (body.job as { id: string }).id;
-    const row = await db
-      .prepare("SELECT bean_name FROM recommendation_jobs WHERE id = ?")
-      .bind(jobId)
-      .first<{ bean_name: string }>();
-    expect(row?.bean_name).toBe("Unknown Bean");
+    expect((body.recipe as { name: string }).name).toContain("Unknown Bean");
   });
 
-  it("recommendation status is retrievable by its owner", async () => {
+  it("stored recipe is retrievable by its owner", async () => {
     const { cookieHeader, token } = await createTestSession();
     const req = makeImagesRequest(
       [{ bytes: makeJpegBytes(), name: "bag.jpg", mime: "image/jpeg" }],
@@ -185,19 +204,19 @@ describe("POST /api/recipes/from-images — happy path", () => {
     );
     const res = await worker.fetch(req, makeEnv());
     const body = (await res.json()) as Record<string, unknown>;
-    const jobId = (body.job as { id: string }).id;
+    const recipeId = body.id as string;
 
     // Retrieve via GET /api/recipes/:id
-    const getReq = new Request(`http://localhost/api/recommendations/${jobId}`, {
+    const getReq = new Request(`http://localhost/api/recipes/${recipeId}`, {
       headers: { Cookie: `${COOKIE_NAME}=${token}` },
     });
     const getRes = await worker.fetch(getReq, makeEnv());
     expect(getRes.status).toBe(200);
     const getBody = (await getRes.json()) as Record<string, unknown>;
-    expect((getBody.job as { id: string }).id).toBe(jobId);
+    expect(getBody.id).toBe(recipeId);
   });
 
-  it("image bytes are NOT stored in the recommendation job", async () => {
+  it("image bytes are NOT stored in the recipe", async () => {
     const { cookieHeader } = await createTestSession();
     const req = makeImagesRequest(
       [{ bytes: makeJpegBytes(), name: "bag.jpg", mime: "image/jpeg" }],
@@ -205,15 +224,15 @@ describe("POST /api/recipes/from-images — happy path", () => {
     );
     const res = await worker.fetch(req, makeEnv());
     const body = (await res.json()) as Record<string, unknown>;
-    const jobId = (body.job as { id: string }).id;
+    const recipeId = body.id as string;
 
     // Inspect the raw DB row — recipe_json must not contain base64 image data
     const row = await db
-      .prepare("SELECT bean_json FROM recommendation_jobs WHERE id = ?")
-      .bind(jobId)
-      .first<{ bean_json: string }>();
+      .prepare("SELECT recipe_json FROM recipes WHERE id = ?")
+      .bind(recipeId)
+      .first<{ recipe_json: string }>();
     expect(row).not.toBeNull();
-    const json = row?.bean_json ?? "";
+    const json = row?.recipe_json ?? "";
     // base64 data URLs start with "data:"
     expect(json).not.toContain("data:image");
     // No raw JPEG magic bytes in stored JSON
@@ -230,7 +249,7 @@ describe("POST /api/recipes/from-images — happy path", () => {
       headers: { Cookie: cookieHeader, Origin: "http://localhost" },
     });
     const res = await worker.fetch(req, makeEnv());
-    expect(res.status).toBe(202);
+    expect(res.status).toBe(201);
   });
 });
 
@@ -309,7 +328,7 @@ describe("POST /api/recipes/from-images — image validation", () => {
         headers: { Cookie: cookieHeader, Origin: "http://localhost" },
       });
       const res = await worker.fetch(req, makeEnv());
-      expect(res.status).toBe(202);
+      expect(res.status).toBe(201);
     }
   });
 });
@@ -397,7 +416,7 @@ describe("GET /api/recipes/:id — ownership", () => {
     );
     const res = await worker.fetch(req, makeEnv());
     const body = (await res.json()) as Record<string, unknown>;
-    const id = (body.job as { id: string }).id;
+    const id = body.id as string;
     // UUID format: 8-4-4-4-12
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
@@ -435,38 +454,31 @@ describe("recipe generation rate limit", () => {
 describe("Unicode beanName sanitization", () => {
   it("preserves Arabic script in beanName", async () => {
     const arabicBean = { ...LIGHT_BEAN, beanName: "قهوة يمنية" };
+    mockOpenAI(arabicBean);
     const { cookieHeader } = await createTestSession();
     const req = makeImagesRequest(
       [{ bytes: makeJpegBytes(), name: "bag.jpg", mime: "image/jpeg" }],
       cookieHeader,
     );
-    const res = await worker.fetch(req, makeEnv({ AI: makeMockAIBean(arabicBean) }));
-    expect(res.status).toBe(202);
+    const res = await worker.fetch(req, makeEnv());
+    expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
-    const jobId = (body.job as { id: string }).id;
-    const row = await db
-      .prepare("SELECT bean_name FROM recommendation_jobs WHERE id = ?")
-      .bind(jobId)
-      .first<{ bean_name: string }>();
-    expect(row?.bean_name).toBe("قهوة يمنية");
+    expect((body.recipe as { name: string }).name).toContain("قهوة يمنية");
   });
 
   it("strips HTML delimiters from beanName before storage", async () => {
     const xssBean = { ...LIGHT_BEAN, beanName: '<script>alert("xss")</script>' };
+    mockOpenAI(xssBean);
     const { cookieHeader } = await createTestSession();
     const req = makeImagesRequest(
       [{ bytes: makeJpegBytes(), name: "bag.jpg", mime: "image/jpeg" }],
       cookieHeader,
     );
-    const res = await worker.fetch(req, makeEnv({ AI: makeMockAIBean(xssBean) }));
-    expect(res.status).toBe(202);
+    const res = await worker.fetch(req, makeEnv());
+    expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
-    const jobId = (body.job as { id: string }).id;
-    const row = await db
-      .prepare("SELECT bean_name FROM recommendation_jobs WHERE id = ?")
-      .bind(jobId)
-      .first<{ bean_name: string }>();
-    expect(row?.bean_name).not.toContain("<script>");
-    expect(row?.bean_name).not.toContain("<");
+    const name = (body.recipe as { name: string }).name;
+    expect(name).not.toContain("<script>");
+    expect(name).not.toContain("<");
   });
 });

@@ -8,12 +8,14 @@ export interface Env {
   readonly ASSETS?: Fetcher;
   readonly ALLOWED_ORIGINS?: string;
   readonly TURNSTILE_SECRET_KEY?: string;
+  /** Server-side OpenAI API key. Must be configured as a Worker secret. */
+  readonly OPENAI_API_KEY?: string;
   /** SHA-256 hex digest of the bearer token used by the Mac bridge service. */
   readonly BRIDGE_TOKEN_HASH?: string;
 }
 
 // ---------------------------------------------------------------------------
-// Bean metadata (extracted by Workers AI vision)
+// Bean metadata (extracted by OpenAI vision)
 // ---------------------------------------------------------------------------
 
 export type RoastLevel = "light" | "medium" | "dark";

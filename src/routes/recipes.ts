@@ -2,17 +2,19 @@ import { enforceSameOrigin, requireAuth } from "../auth/middleware.js";
 import {
   RECIPE_MAX_ATTEMPTS,
   countRecentRecipeAttempts,
-  createRecommendationJob,
   findRecipeById,
   listRecipesByOwner,
   recordRecipeAttempt,
+  storeRecipe,
 } from "../db.js";
 import { ClientError, NotFoundError, PayloadTooLargeError, RateLimitError } from "../errors.js";
 import { extractImagesFromFormData } from "../image.js";
+import { analyzeAndRecommend } from "../openai.js";
+import { validateRecipeInvariants } from "../recipe.js";
 import { sanitizeModelString } from "../sanitize.js";
 import { verifyTurnstile } from "../turnstile.js";
-import type { BeanMetadata, Env } from "../types.js";
-import { extractBeanMetadata } from "../vision.js";
+import type { BeanMetadata, Env, Recipe } from "../types.js";
+import { validateBeanMetadata } from "../vision.js";
 
 const EN_DASH = "–";
 const RECIPE_PATH_PREFIX = "/recipes/";
@@ -54,7 +56,8 @@ export async function handleFromImages(
   // Record attempt BEFORE calling AI (counts whether or not AI succeeds)
   await recordRecipeAttempt(env.DB, ctx.userId);
 
-  const bean = await extractBeanMetadata(images, env);
+  const result = await analyzeAndRecommend(images, brewMode, env);
+  const bean = validateBeanMetadata(result.bean);
 
   // Sanitize model-sourced strings
   const safeBeanName = sanitizeModelString(bean.beanName, 100).trim() || "Unknown Bean";
@@ -72,26 +75,40 @@ export async function handleFromImages(
     description: sanitizeModelString(bean.description, 200),
   };
 
-  // Images have already fallen out of scope. Only sanitized text enters the trusted
-  // Mac recommendation queue; no image bytes or user-provided username are retained.
-  const jobId = crypto.randomUUID();
-  await createRecommendationJob(env.DB, {
-    id: jobId,
-    ownerId: ctx.userId,
-    username: ctx.username,
-    beanName: safeBeanName,
-    beanJson: JSON.stringify(sanitizedBean),
+  const recipeName = `${ctx.username} ${EN_DASH} ${safeBeanName}`;
+  const { icedServing, ...recipeCore } = result.recipe;
+  const recipe: Recipe = {
+    ...recipeCore,
+    name: recipeName,
+    machine: "xBloom Studio",
+    dripper: "Omni",
     brewMode,
+    bean: sanitizedBean,
+    ...(icedServing === null ? {} : { icedServing }),
+  };
+  validateRecipeInvariants(recipe);
+
+  // Only extracted text and validated recipe data are persisted. Image bytes remain
+  // request-scoped and become unreachable immediately after this handler returns.
+  const recipeId = crypto.randomUUID();
+  await storeRecipe(env.DB, {
+    id: recipeId,
+    ownerId: ctx.userId,
+    fullName: recipeName,
+    beanName: safeBeanName,
+    recipeJson: JSON.stringify(recipe),
   });
 
   const body = JSON.stringify({
     ok: true,
     requestId,
-    job: { id: jobId, status: "pending" },
+    id: recipeId,
+    link: `${RECIPE_PATH_PREFIX}${recipeId}`,
+    recipe,
   });
 
   return new Response(body, {
-    status: 202,
+    status: 201,
     headers: { "Content-Type": "application/json;charset=UTF-8" },
   });
 }

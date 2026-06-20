@@ -1,12 +1,4 @@
-import type {
-  AdminUser,
-  AuthUser,
-  BrewMode,
-  BridgeJob,
-  Recipe,
-  RecipeListItem,
-  RecommendationJob,
-} from "./types.js";
+import type { AdminUser, AuthUser, BrewMode, BridgeJob, Recipe, RecipeListItem } from "./types.js";
 
 export class ApiError extends Error {
   readonly code: string;
@@ -70,18 +62,13 @@ export async function apiMe(): Promise<AuthUser | null> {
 export async function apiCreateRecipe(
   images: File[],
   brewMode: BrewMode,
-): Promise<{ job: RecommendationJob }> {
+): Promise<{ id: string; link: string; recipe: Recipe }> {
   const fd = new FormData();
   for (const img of images) fd.append("images", img);
   fd.append("brewMode", brewMode);
 
   const data = await req("/api/recipes/from-images", { method: "POST", body: fd });
-  return data as { job: RecommendationJob };
-}
-
-export async function apiGetRecommendation(id: string): Promise<RecommendationJob> {
-  const data = await req(`/api/recommendations/${encodeURIComponent(id)}`);
-  return (data as { job: RecommendationJob }).job;
+  return data as { id: string; link: string; recipe: Recipe };
 }
 
 export async function apiGetRecipe(id: string): Promise<Recipe> {

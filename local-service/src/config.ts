@@ -60,10 +60,5 @@ export function loadConfig(): Config {
     ...(cloudWorkerUrl ? { cloudWorkerUrl } : {}),
     ...(process.env.BRIDGE_TOKEN?.trim() ? { bridgeToken: process.env.BRIDGE_TOKEN.trim() } : {}),
     bridgePollIntervalMs: envInt("BRIDGE_POLL_INTERVAL_MS", 5000),
-    codexBinary: env("CODEX_BINARY", "/opt/homebrew/bin/codex"),
-    codexWorkDir: env(
-      "CODEX_WORK_DIR",
-      `${process.env.HOME ?? "/tmp"}/.codex/xbloom-recommender-work`,
-    ),
   };
 }
