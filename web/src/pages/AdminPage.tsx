@@ -96,8 +96,8 @@ function AdminDashboard({ currentUserId }: { currentUserId: string }) {
 
   async function handleResetPassword() {
     if (!resetTarget) return;
-    if (resetPassword.length < 12) {
-      setResetError("Password must be at least 12 characters.");
+    if (resetPassword.length < 4) {
+      setResetError("Password must be at least 4 characters.");
       return;
     }
     try {
@@ -300,7 +300,7 @@ function AdminDashboard({ currentUserId }: { currentUserId: string }) {
                             className="text-xs underline text-espresso/60 hover:text-espresso
                                        focus-visible:outline-2"
                           >
-                            Reset pw
+                            Reset Password
                           </button>
                           {!protected_ && (
                             <button
@@ -381,7 +381,7 @@ function AdminDashboard({ currentUserId }: { currentUserId: string }) {
             <input
               type="password"
               autoComplete="new-password"
-              placeholder="New password (min 12 chars)"
+              placeholder="New password (min 4 chars)"
               value={resetPassword}
               onChange={(e) => setResetPassword(e.target.value)}
               aria-label="New password"
@@ -439,7 +439,7 @@ function CreateUserForm({ onCreated, onError }: CreateUserFormProps) {
     e.preventDefault();
     const errs: { username?: string; password?: string } = {};
     if (username.trim().length < 3) errs.username = "Must be at least 3 characters.";
-    if (password.length < 12) errs.password = "Must be at least 12 characters.";
+    if (password.length < 4) errs.password = "Must be at least 4 characters.";
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       return;

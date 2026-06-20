@@ -52,7 +52,7 @@ Mac local-service ← polls /api/bridge/jobs/next (bearer token)
 
 ### Input validation
 - Username: NFKC normalize, trim, 3–32 chars, `[\p{L}\p{N}._-]` only, no control/HTML delimiters.
-- Password: min 12, max 128, not all-whitespace.
+- Password: minimum 4 characters with no character-composition restrictions.
 - Image magic bytes validated (JPEG/PNG/WebP), max 10 MB per file, 20 MB combined, 1–4 files.
 - AI-sourced strings sanitized (control chars and `< > & " '` stripped, length capped, NFKC).
 

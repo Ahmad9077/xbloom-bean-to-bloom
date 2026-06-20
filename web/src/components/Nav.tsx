@@ -18,9 +18,9 @@ export default function Nav() {
       <Link
         to="/"
         className="font-heading text-lg text-ivory hover:text-ivory/80 transition-colors mr-auto"
-        aria-label="xBloom Brew Studio — home"
+        aria-label="Bean to Bloom — home"
       >
-        xBloom
+        Bean to Bloom
       </Link>
 
       <Link

@@ -52,11 +52,11 @@ describe("CloudBridge — pending state", () => {
     render(<CloudBridge recipeId="r1" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent(/waiting for mac bridge/i);
+      expect(screen.getByRole("status")).toHaveTextContent(/creating your xbloom link/i);
     });
   });
 
-  it("explains the cloud bridge to user without exposing paths", async () => {
+  it("shows user-facing progress without backend implementation details", async () => {
     mockCreate.mockResolvedValue({
       id: "j1",
       recipeId: "r1",
@@ -75,8 +75,9 @@ describe("CloudBridge — pending state", () => {
     render(<CloudBridge recipeId="r1" />);
 
     await waitFor(() => {
-      expect(screen.getByText(/cloud bridge job/i)).toBeInTheDocument();
+      expect(screen.getByText(/creating your xbloom link/i)).toBeInTheDocument();
     });
+    expect(screen.queryByText(/bridge|queue|mac/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/127\.0\.0\.1/)).not.toBeInTheDocument();
     expect(screen.queryByText(/localhost/)).not.toBeInTheDocument();
   });
@@ -103,7 +104,7 @@ describe("CloudBridge — completed state", () => {
     render(<CloudBridge recipeId="r1" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent(/sent to xbloom studio/i);
+      expect(screen.getByRole("status")).toHaveTextContent(/xbloom link is ready/i);
     });
     expect(screen.getByRole("link", { name: /add recipe in xbloom app/i })).toHaveAttribute(
       "href",
@@ -134,9 +135,9 @@ describe("CloudBridge — failed state", () => {
     render(<CloudBridge recipeId="r1" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/bridge delivery failed/i);
+      expect(screen.getByRole("alert")).toHaveTextContent(/could not create the xbloom link/i);
     });
-    expect(screen.getByText(/bridge timed out/i)).toBeInTheDocument();
+    expect(screen.queryByText(/bridge timed out/i)).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /retry and create xbloom link/i }),
     ).toBeInTheDocument();
@@ -178,7 +179,7 @@ describe("CloudBridge — API error", () => {
     render(<CloudBridge recipeId="r1" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/bridge job unavailable/i);
+      expect(screen.getByRole("alert")).toHaveTextContent(/xbloom link unavailable/i);
     });
   });
 

@@ -1,19 +1,12 @@
 import type { Recipe } from "../types.js";
 import CloudBridge from "./CloudBridge.js";
 import PourTimeline from "./PourTimeline.js";
-import StepProgress from "./StepProgress.js";
 
 const ROAST_LABEL: Record<string, string> = {
   light: "Light Roast",
   medium: "Medium Roast",
   dark: "Dark Roast",
 };
-
-const RESULT_STEPS = [
-  { label: "Photo", status: "complete" as const },
-  { label: "Recipe", status: "active" as const },
-  { label: "xBloom", status: "next" as const },
-];
 
 interface Props {
   recipe: Recipe;
@@ -28,9 +21,6 @@ export default function RecipeResult({ recipe, recipeId }: Props) {
       {/* Hero header */}
       <header className="bg-espresso text-ivory px-6 pt-8 pb-6">
         <div className="max-w-2xl mx-auto">
-          <div className="mb-4">
-            <StepProgress steps={RESULT_STEPS} />
-          </div>
           <div className="flex items-center gap-2 mb-3">
             <span
               className={`text-xs font-semibold px-3 py-1 rounded-full ${
@@ -158,7 +148,7 @@ export default function RecipeResult({ recipe, recipeId }: Props) {
                        focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta
                        text-center"
           >
-            New Recipe
+            Back to Recipe
           </a>
         </div>
       </div>

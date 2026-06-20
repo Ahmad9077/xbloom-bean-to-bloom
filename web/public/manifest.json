@@ -1,6 +1,6 @@
 {
-  "name": "xBloom Brew Studio",
-  "short_name": "xBloom",
+  "name": "Bean to Bloom",
+  "short_name": "Bean to Bloom",
   "description": "Scan your coffee bag to generate an xBloom Studio recipe.",
   "start_url": ".",
   "display": "standalone",

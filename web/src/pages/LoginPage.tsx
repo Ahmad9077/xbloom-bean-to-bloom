@@ -53,8 +53,8 @@ export default function LoginPage() {
     if (password.length === 0) {
       setPasswordError("Password is required.");
       ok = false;
-    } else if (password.length < 12) {
-      setPasswordError("Password must be at least 12 characters.");
+    } else if (password.length < 4) {
+      setPasswordError("Password must be at least 4 characters.");
       ok = false;
     }
 

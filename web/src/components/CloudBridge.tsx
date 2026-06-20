@@ -108,25 +108,21 @@ export default function CloudBridge({ recipeId }: Props) {
           className="w-5 h-5 rounded-full border-2 border-sage border-t-terracotta animate-spin flex-shrink-0"
           aria-hidden="true"
         />
-        Connecting to cloud bridge…
+        Preparing your xBloom link…
       </output>
     );
   }
 
   if (state.kind === "pending") {
     return (
-      <output aria-live="polite" className="space-y-2">
+      <output aria-live="polite">
         <div className="flex items-center gap-3 py-2 text-sm text-sage">
           <span
             className="w-5 h-5 rounded-full border-2 border-sage border-t-terracotta animate-spin flex-shrink-0"
             aria-hidden="true"
           />
-          Waiting for Mac bridge…
+          Creating your xBloom link…
         </div>
-        <p className="text-xs text-espresso/50">
-          A cloud bridge job has been queued. When your Mac bridge app is running and connected, it
-          will automatically receive this recipe and send it to xBloom Studio.
-        </p>
       </output>
     );
   }
@@ -138,7 +134,7 @@ export default function CloudBridge({ recipeId }: Props) {
           className="w-5 h-5 rounded-full border-2 border-sage border-t-terracotta animate-spin flex-shrink-0"
           aria-hidden="true"
         />
-        Mac bridge is sending recipe to xBloom Studio…
+        Creating your xBloom link… This may take a few minutes.
       </output>
     );
   }
@@ -149,10 +145,7 @@ export default function CloudBridge({ recipeId }: Props) {
         aria-live="polite"
         className="block bg-green-50 border border-green-200 rounded-card p-4"
       >
-        <p className="text-sm font-semibold text-green-800">✓ Recipe sent to xBloom Studio</p>
-        <p className="text-xs text-green-700 mt-1">
-          The recipe has been delivered to your xBloom Studio via the Mac bridge.
-        </p>
+        <p className="text-sm font-semibold text-green-800">✓ Your xBloom link is ready</p>
         {state.shareLink && (
           <a
             href={state.shareLink}
@@ -168,11 +161,9 @@ export default function CloudBridge({ recipeId }: Props) {
   if (state.kind === "failed") {
     return (
       <div role="alert" className="bg-red-50 border border-red-200 rounded-card p-4 space-y-1">
-        <p className="text-sm font-semibold text-red-800">Bridge delivery failed</p>
-        {state.error && <p className="text-xs text-red-700">{state.error}</p>}
+        <p className="text-sm font-semibold text-red-800">Could not create the xBloom link</p>
         <p className="text-xs text-red-600/70 mt-1">
-          Check that the Mac bridge is running, then retry. After delivery, you will receive a
-          button that opens the official xBloom share link.
+          Please try again. When it is ready, a button will open the recipe directly in xBloom.
         </p>
         <button
           type="button"
@@ -188,7 +179,7 @@ export default function CloudBridge({ recipeId }: Props) {
   // apiError
   return (
     <div role="alert" className="bg-amber-50 border border-amber-200 rounded-card p-4 space-y-1">
-      <p className="text-sm font-semibold text-amber-800">Bridge job unavailable</p>
+      <p className="text-sm font-semibold text-amber-800">xBloom link unavailable</p>
       <p className="text-xs text-amber-700">{state.message}</p>
     </div>
   );

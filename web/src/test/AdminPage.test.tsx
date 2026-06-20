@@ -257,11 +257,11 @@ describe("AdminPage — create user", () => {
     });
     await userEvent.click(screen.getByRole("button", { name: /create user/i }));
     await userEvent.type(screen.getByLabelText(/^username$/i), "validuser");
-    await userEvent.type(screen.getByLabelText(/^password$/i), "short");
+    await userEvent.type(screen.getByLabelText(/^password$/i), "abc");
     await userEvent.click(screen.getByRole("button", { name: /^create$/i }));
     await waitFor(() => {
       expect(
-        screen.getAllByRole("alert").some((el) => /at least 12/i.test(el.textContent ?? "")),
+        screen.getAllByRole("alert").some((el) => /at least 4/i.test(el.textContent ?? "")),
       ).toBe(true);
     });
   });

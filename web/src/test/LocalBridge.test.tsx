@@ -50,18 +50,18 @@ describe("CloudBridge — bridge available, pending", () => {
     render(<CloudBridge recipeId="r-1" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent(/waiting for mac bridge/i);
+      expect(screen.getByRole("status")).toHaveTextContent(/creating your xbloom link/i);
     });
   });
 
-  it("explains the bridge without exposing server paths", async () => {
+  it("shows user-facing progress without backend implementation details", async () => {
     mockCreate.mockResolvedValue(PENDING_JOB);
     mockGet.mockResolvedValue(PENDING_JOB);
 
     render(<CloudBridge recipeId="r-1" />);
 
     await waitFor(() => {
-      expect(screen.getByText(/cloud bridge job/i)).toBeInTheDocument();
+      expect(screen.getByText(/creating your xbloom link/i)).toBeInTheDocument();
     });
     expect(screen.queryByText(/127\.0\.0\.1/)).not.toBeInTheDocument();
     expect(screen.queryByText(/localhost/)).not.toBeInTheDocument();
@@ -77,7 +77,7 @@ describe("CloudBridge — completed", () => {
     render(<CloudBridge recipeId="r-1" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent(/sent to xbloom studio/i);
+      expect(screen.getByRole("status")).toHaveTextContent(/xbloom link is ready/i);
     });
   });
 });
@@ -90,8 +90,8 @@ describe("CloudBridge — failed", () => {
     render(<CloudBridge recipeId="r-1" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/bridge delivery failed/i);
+      expect(screen.getByRole("alert")).toHaveTextContent(/could not create the xbloom link/i);
     });
-    expect(screen.getByText(/app timed out/i)).toBeInTheDocument();
+    expect(screen.queryByText(/app timed out/i)).not.toBeInTheDocument();
   });
 });

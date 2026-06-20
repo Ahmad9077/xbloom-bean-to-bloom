@@ -150,12 +150,12 @@ describe("POST /api/admin/users — create", () => {
     expect(res.status).toBe(409);
   });
 
-  it("returns 400 for weak password (< 12 chars)", async () => {
+  it("returns 400 for password shorter than four characters", async () => {
     const { cookieHeader } = await createTestUser({ username: "admin1", role: "admin" });
     const req = new Request("http://localhost/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookieHeader },
-      body: JSON.stringify({ username: "newuser2", password: "short" }),
+      body: JSON.stringify({ username: "newuser2", password: "abc" }),
     });
     const res = await worker.fetch(req, makeEnv());
     expect(res.status).toBe(400);

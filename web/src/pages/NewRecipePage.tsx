@@ -3,20 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ApiError, apiCreateRecipe, compressImage } from "../api.js";
 import BrewModeSelector from "../components/BrewModeSelector.js";
 import MultiPhotoUpload from "../components/MultiPhotoUpload.js";
-import StepProgress from "../components/StepProgress.js";
 import type { BrewMode } from "../types.js";
-
-const UPLOAD_STEPS = [
-  { label: "Photo", status: "active" as const },
-  { label: "Recipe", status: "next" as const },
-  { label: "xBloom", status: "next" as const },
-];
-
-const LOADING_STEPS = [
-  { label: "Photo", status: "complete" as const },
-  { label: "Recipe", status: "active" as const },
-  { label: "xBloom", status: "next" as const },
-];
 
 type Stage =
   | { kind: "upload" }
@@ -64,8 +51,6 @@ export default function NewRecipePage() {
   }
 
   const isLoading = stage.kind === "loading" || stage.kind === "compressing";
-  const steps = isLoading ? LOADING_STEPS : UPLOAD_STEPS;
-
   return (
     <main className="min-h-screen bg-ivory flex flex-col items-center px-4 py-8">
       <header className="mb-6 text-center">
@@ -74,10 +59,6 @@ export default function NewRecipePage() {
           For xBloom Studio
         </p>
       </header>
-
-      <div className="w-full max-w-md mb-6">
-        <StepProgress steps={steps} />
-      </div>
 
       <div className="w-full max-w-md space-y-6">
         {/* Step 1 — brew mode */}

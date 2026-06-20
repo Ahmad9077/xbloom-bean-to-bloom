@@ -104,27 +104,17 @@ describe("parseUsername", () => {
 });
 
 describe("validatePassword", () => {
-  it("accepts a valid 12+ char password", () => {
-    expect(() => validatePassword("correct-horse-battery-staple")).not.toThrow();
+  it("accepts any four-character password", () => {
+    expect(() => validatePassword("abcd")).not.toThrow();
+    expect(() => validatePassword("    ")).not.toThrow();
+    expect(() => validatePassword("!@#$")).not.toThrow();
   });
 
-  it("rejects password shorter than 12 chars", () => {
-    expect(() => validatePassword("short1!")).toThrow(/12/);
+  it("rejects password shorter than four characters", () => {
+    expect(() => validatePassword("abc")).toThrow(/4/);
   });
 
-  it("rejects password longer than 128 chars", () => {
-    expect(() => validatePassword("a".repeat(129))).toThrow(/128/);
-  });
-
-  it("rejects all-whitespace password", () => {
-    expect(() => validatePassword("            ")).toThrow(/whitespace/);
-  });
-
-  it("accepts exactly 12 characters", () => {
-    expect(() => validatePassword("abcdefghijkl")).not.toThrow();
-  });
-
-  it("accepts exactly 128 characters", () => {
-    expect(() => validatePassword("a".repeat(128))).not.toThrow();
+  it("does not impose a maximum length", () => {
+    expect(() => validatePassword("a".repeat(1024))).not.toThrow();
   });
 });

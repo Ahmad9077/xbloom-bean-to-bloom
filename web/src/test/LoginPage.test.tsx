@@ -96,10 +96,10 @@ describe("LoginPage — client-side validation", () => {
   it("shows error when password is too short", async () => {
     renderLogin();
     await userEvent.type(screen.getByLabelText(/username/i), "validuser");
-    await userEvent.type(screen.getByLabelText(/password/i), "short");
+    await userEvent.type(screen.getByLabelText(/password/i), "abc");
     await userEvent.click(screen.getByRole("button", { name: /login/i }));
     await waitFor(() => {
-      expect(screen.getByText(/at least 12 characters/i)).toBeInTheDocument();
+      expect(screen.getByText(/at least 4 characters/i)).toBeInTheDocument();
     });
   });
 });

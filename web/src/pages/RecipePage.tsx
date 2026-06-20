@@ -20,7 +20,7 @@ export default function RecipePage() {
     apiGetRecipe(recipeId)
       .then((r) => {
         setRecipe(r);
-        document.title = `${r.name} — xBloom Brew Studio`;
+        document.title = `${r.name} — Bean to Bloom`;
       })
       .catch((err) => {
         if (err instanceof ApiError) {
@@ -37,7 +37,7 @@ export default function RecipePage() {
       });
 
     return () => {
-      document.title = "xBloom Brew Studio";
+      document.title = "Bean to Bloom";
     };
   }, [recipeId, navigate]);
 

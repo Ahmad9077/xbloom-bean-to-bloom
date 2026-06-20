@@ -16,14 +16,9 @@ function formatLocalDate(timestamp: number): string {
   }
 }
 
-function recipeUrl(id: string): string {
-  return `${window.location.origin}/recipes/${encodeURIComponent(id)}`;
-}
-
 export default function HistoryPage() {
   const [recipes, setRecipes] = useState<RecipeListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
     apiGetRecipes()
@@ -32,22 +27,6 @@ export default function HistoryPage() {
         setError(err instanceof Error ? err.message : "Failed to load recipes.");
       });
   }, []);
-
-  async function copyLink(id: string) {
-    const url = recipeUrl(id);
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      const el = document.createElement("input");
-      el.value = url;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand("copy");
-      document.body.removeChild(el);
-    }
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2500);
-  }
 
   if (error) {
     return (
@@ -94,7 +73,6 @@ export default function HistoryPage() {
         ) : (
           <ol className="space-y-4" aria-label="Your recipes">
             {recipes.map((r) => {
-              const url = recipeUrl(r.id);
               return (
                 <li
                   key={r.id}
@@ -107,34 +85,16 @@ export default function HistoryPage() {
                     </p>
                   </div>
 
-                  <p
-                    className="text-xs text-espresso/40 font-body truncate"
-                    title={url}
-                    aria-label="Recipe URL"
-                  >
-                    {url}
-                  </p>
-
-                  <div className="flex gap-2">
+                  <div>
                     <a
                       href={`/recipes/${encodeURIComponent(r.id)}`}
-                      className="flex-1 min-h-touch bg-espresso text-ivory font-body font-semibold
+                      className="flex min-h-touch w-full bg-espresso text-ivory font-body font-semibold
                                  text-xs rounded-[12px] flex items-center justify-center
                                  hover:opacity-90 transition-opacity focus-visible:outline-2
                                  focus-visible:outline-offset-2 focus-visible:outline-terracotta"
                     >
                       Open recipe
                     </a>
-                    <button
-                      type="button"
-                      onClick={() => copyLink(r.id)}
-                      aria-label={copiedId === r.id ? "Link copied" : `Copy link for ${r.fullName}`}
-                      className="min-h-touch px-4 border border-espresso/20 text-espresso font-body
-                                 font-semibold text-xs rounded-[12px] hover:bg-espresso/5 transition-colors
-                                 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-                    >
-                      {copiedId === r.id ? "Copied!" : "Copy Link"}
-                    </button>
                   </div>
                 </li>
               );

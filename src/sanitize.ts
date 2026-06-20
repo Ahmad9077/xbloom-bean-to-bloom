@@ -44,10 +44,8 @@ export function parseUsername(raw: string): { display: string; normalized: strin
 
 /**
  * Validate a password submitted by a user.
- * Min 12 chars, max 128 chars, must not be all-whitespace.
+ * Minimum 4 characters. All character types are accepted.
  */
 export function validatePassword(pw: string): void {
-  if (pw.length < 12) throw new Error("Password must be at least 12 characters");
-  if (pw.length > 128) throw new Error("Password must be at most 128 characters");
-  if (pw.trim().length === 0) throw new Error("Password must not be all whitespace");
+  if (pw.length < 4) throw new Error("Password must be at least 4 characters");
 }

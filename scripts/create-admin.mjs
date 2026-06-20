@@ -218,16 +218,8 @@ async function main() {
     process.exit(1);
   }
 
-  if (!password || password.length < 12) {
-    console.error("Error: Password must be at least 12 characters.");
-    process.exit(1);
-  }
-  if (password.length > 128) {
-    console.error("Error: Password must be at most 128 characters.");
-    process.exit(1);
-  }
-  if (password.trim().length === 0) {
-    console.error("Error: Password must not be all whitespace.");
+  if (!password || password.length < 4) {
+    console.error("Error: Password must be at least 4 characters.");
     process.exit(1);
   }
 

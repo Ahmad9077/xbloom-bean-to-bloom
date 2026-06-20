@@ -1,5 +1,4 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthContext } from "../context/AuthContext.js";
@@ -107,12 +106,14 @@ describe("HistoryPage — recipe list", () => {
     });
   });
 
-  it("shows Copy Link buttons", async () => {
+  it("does not show recipe URLs or copy-link controls", async () => {
     mockGetRecipes.mockResolvedValue(RECIPES);
     renderPage();
     await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /copy link/i }).length).toBeGreaterThan(0);
+      expect(screen.getByText("Ethiopia Light Roast")).toBeInTheDocument();
     });
+    expect(screen.queryByRole("button", { name: /copy link/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/recipes\/r1/i)).not.toBeInTheDocument();
   });
 
   it("shows local date/time for each recipe", async () => {
@@ -123,32 +124,6 @@ describe("HistoryPage — recipe list", () => {
     });
     // Date should be formatted (Jan 15, 2024 or similar)
     expect(screen.getAllByText(/jan/i)).toHaveLength(2);
-  });
-
-  it("shows current-origin URLs in the list", async () => {
-    mockGetRecipes.mockResolvedValue(RECIPES);
-    renderPage();
-    await waitFor(() => {
-      // URL should contain /recipes/r1
-      expect(screen.getByTitle(/recipes\/r1/i)).toBeInTheDocument();
-    });
-  });
-
-  it("copies link to clipboard when Copy Link clicked", async () => {
-    mockGetRecipes.mockResolvedValue(RECIPES);
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /copy link/i })).toHaveLength(2);
-    });
-    const copyBtns = screen.getAllByRole("button", { name: /copy link/i });
-    const firstCopy = copyBtns[0];
-    if (!firstCopy) throw new Error("Copy button missing");
-    await userEvent.click(firstCopy);
-    await waitFor(() => {
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        expect.stringContaining("/recipes/r1"),
-      );
-    });
   });
 });
 
