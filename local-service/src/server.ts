@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { captureFailureScreenshot, createRecipe } from "./automation.js";
+import { startCloudPoller } from "./cloud-poller.js";
 import { loadConfig } from "./config.js";
-import { closeDriver, createDriver } from "./driver.js";
 import { ErrorCode, ServiceError, toErrorCode, toSafeMessage, toStatusCode } from "./errors.js";
 import { IdempotencyStore } from "./idempotency.js";
 import { log } from "./logger.js";
 import { SerialQueue } from "./queue.js";
+import { runRecipeAutomation } from "./runner.js";
 import type { JobResult } from "./types.js";
 import { validateRequest } from "./validation.js";
 
@@ -132,45 +132,19 @@ app.post("/v1/recipes", async (req: Request, res: Response) => {
   log.info("Queuing job", { requestId, jobId, dryRun, confirmSave });
 
   const jobPromise = queue.run(async (): Promise<JobResult> => {
-    let driver: Awaited<ReturnType<typeof createDriver>> | undefined;
-    try {
-      driver = await createDriver({
-        appiumUrl: config.appiumUrl,
-        elementTimeoutMs: config.elementTimeoutMs,
-        skipVersionCheck: config.skipVersionCheck,
-        expectedAppVersion: config.expectedAppVersion,
-        jobId,
-      });
-
-      await createRecipe(
-        driver,
-        recipe,
-        {
-          dryRun: dryRun === true,
-          confirmSave: confirmSave === true,
-          maxRetries: config.sliderMaxRetries,
-          screenshotDir: config.screenshotDir,
-        },
-        jobId,
-      );
-
-      return {
-        ok: true,
-        jobId,
-        requestId,
-        dryRun: dryRun === true,
-        confirmed: confirmSave === true,
-        recipeName: recipe.name,
-        message: dryRun ? "Dry-run complete — recipe was not saved" : "Recipe saved successfully",
-      };
-    } catch (err) {
-      if (driver) {
-        await captureFailureScreenshot(driver, config.screenshotDir, jobId);
-      }
-      throw err;
-    } finally {
-      if (driver) await closeDriver(driver, jobId);
-    }
+    await runRecipeAutomation(config, recipe, jobId, {
+      dryRun: dryRun === true,
+      confirmSave: confirmSave === true,
+    });
+    return {
+      ok: true,
+      jobId,
+      requestId,
+      dryRun: dryRun === true,
+      confirmed: confirmSave === true,
+      recipeName: recipe.name,
+      message: dryRun ? "Dry-run complete — recipe was not saved" : "Recipe saved successfully",
+    };
   });
 
   // Register in-flight promise for concurrent key coalescing (do not log the key value)
@@ -201,6 +175,7 @@ app.post("/v1/recipes", async (req: Request, res: Response) => {
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 export function startServer(): void {
+  startCloudPoller(config);
   app.listen(config.port, "127.0.0.1", () => {
     log.info("xBloom local service started", {
       stage: "startup",

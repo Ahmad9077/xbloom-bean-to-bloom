@@ -102,4 +102,7 @@ export interface Config {
   sliderMaxRetries: number;
   screenshotDir: string;
   idempotencyTtlMs: number;
+  cloudWorkerUrl?: string;
+  bridgeToken?: string;
+  bridgePollIntervalMs?: number;
 }

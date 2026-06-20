@@ -24,6 +24,18 @@ export function loadConfig(): Config {
   const originsRaw = env("ALLOWED_ORIGINS", "");
   const hostsRaw = env("ALLOWED_HOSTS", "localhost:3999,127.0.0.1:3999");
 
+  const cloudWorkerUrl = process.env.CLOUD_WORKER_URL?.trim().replace(/\/$/, "");
+  if (cloudWorkerUrl) {
+    const parsed = new URL(cloudWorkerUrl);
+    if (
+      parsed.protocol !== "https:" &&
+      parsed.hostname !== "127.0.0.1" &&
+      parsed.hostname !== "localhost"
+    ) {
+      throw new Error("CLOUD_WORKER_URL must use HTTPS outside local development");
+    }
+  }
+
   return {
     port: envInt("PORT", 3999),
     appiumUrl: env("APPIUM_URL", "http://127.0.0.1:4723"),
@@ -45,5 +57,8 @@ export function loadConfig(): Config {
     sliderMaxRetries: envInt("SLIDER_MAX_RETRIES", 5),
     screenshotDir: env("SCREENSHOT_DIR", "./runtime/screenshots"),
     idempotencyTtlMs: envInt("IDEMPOTENCY_TTL_MS", 86400000),
+    ...(cloudWorkerUrl ? { cloudWorkerUrl } : {}),
+    ...(process.env.BRIDGE_TOKEN?.trim() ? { bridgeToken: process.env.BRIDGE_TOKEN.trim() } : {}),
+    bridgePollIntervalMs: envInt("BRIDGE_POLL_INTERVAL_MS", 5000),
   };
 }

@@ -3,6 +3,11 @@
 Local HTTP service that drives the xBloom Android app via Appium to create and save recipes.
 Binds to `127.0.0.1` only. Never expose to a network interface.
 
+Production uses the authenticated Cloudflare bridge queue. `run-stack.sh` boots the
+headless Android emulator, starts Appium with the Android SDK environment, and starts
+the poller. The bridge bearer token is read from macOS Keychain at runtime. The legacy
+loopback HTTP route remains available for local diagnostics only.
+
 ## Supported app version
 
 xBloom Studio **2.2.2** (`EXPECTED_APP_VERSION=2.2.2`). Other versions may work with
@@ -49,6 +54,17 @@ npm start
 ```
 
 The service listens on `http://127.0.0.1:3999` by default (`PORT` env var).
+
+To run the complete production bridge stack:
+
+```bash
+./run-stack.sh
+```
+
+On the deployed Mac this runs from `~/.codex/xbloom-bridge/app` under LaunchAgent
+`com.xbloom.bean-to-bloom-bridge`. This runtime location avoids macOS background-process
+privacy restrictions on Documents. The bridge token is retrieved from macOS Keychain service
+`xBloom Bean to Bloom Bridge Token`, account `bridge`; it is not read from `.env`.
 
 ## Security
 
