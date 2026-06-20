@@ -370,11 +370,11 @@ describe("generateRecipe — cold mode", () => {
     }
   });
 
-  it("cold recipe has icedServing with iceG=80 and totalBeverageMl=240", () => {
+  it("cold recipe has 140 g ice and a 300 ml total beverage", () => {
     const r = generateRecipe(LIGHT_BEAN, "Omni", "cold");
     expect(r.icedServing).toBeDefined();
     expect(r.icedServing?.iceG).toBe(COLD_ICE_G);
-    expect(r.icedServing?.totalBeverageMl).toBe(160 + COLD_ICE_G); // 240
+    expect(r.icedServing?.totalBeverageMl).toBe(300);
   });
 
   it("cold recipe name clearly includes 'Iced'", () => {
@@ -415,14 +415,14 @@ describe("generateRecipe — cold mode", () => {
 
   it("validateRecipeInvariants throws when cold recipe has wrong iceG", () => {
     const r = generateRecipe(LIGHT_BEAN, "Omni", "cold");
-    const base = r.icedServing ?? { iceG: COLD_ICE_G, totalBeverageMl: 240, instruction: "" };
+    const base = r.icedServing ?? { iceG: COLD_ICE_G, totalBeverageMl: 300, instruction: "" };
     const bad = { ...r, icedServing: { ...base, iceG: 200, totalBeverageMl: 360 } };
     expect(() => validateRecipeInvariants(bad)).toThrow(/iceG/);
   });
 
   it("validateRecipeInvariants throws when cold recipe has wrong totalBeverageMl", () => {
     const r = generateRecipe(LIGHT_BEAN, "Omni", "cold");
-    const base = r.icedServing ?? { iceG: COLD_ICE_G, totalBeverageMl: 240, instruction: "" };
+    const base = r.icedServing ?? { iceG: COLD_ICE_G, totalBeverageMl: 300, instruction: "" };
     const bad = { ...r, icedServing: { ...base, totalBeverageMl: 999 } };
     expect(() => validateRecipeInvariants(bad)).toThrow(/totalBeverageMl/);
   });

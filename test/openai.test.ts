@@ -91,6 +91,20 @@ describe("recommendRecipe", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("instructs cold recommendations to target 300 ml with more ice", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(openAIResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await recommendRecipe(LIGHT_BEAN, "cold", ENV);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    const prompt = body.input[0].content[0].text as string;
+    expect(prompt).toContain("target exactly 300 ml");
+    expect(prompt).toContain("100..160 g ice");
+    expect(prompt).toContain("140..200 ml machine water");
+  });
+
   it("maps spending and rate limits without exposing provider details", async () => {
     vi.stubGlobal(
       "fetch",

@@ -115,13 +115,14 @@ describe("POST /api/recipes/:id/bridge-jobs — create", () => {
     expect((b1.job as Record<string, unknown>).id).toBe((b2.job as Record<string, unknown>).id);
   });
 
-  it("requeues a failed job when the owner tries again", async () => {
+  it("leaves a failed job failed until the owner explicitly retries", async () => {
     const { id, cookieHeader } = await createTestSession();
     const recipeId = await createTestRecipe(id);
-    const makeReq = () =>
+    const makeReq = (retry = false) =>
       new Request(`http://localhost/api/recipes/${recipeId}/bridge-jobs`, {
         method: "POST",
-        headers: { Cookie: cookieHeader },
+        headers: { Cookie: cookieHeader, "Content-Type": "application/json" },
+        body: JSON.stringify({ retry }),
       });
 
     const created = (await (await worker.fetch(makeReq(), makeEnv())).json()) as {
@@ -134,7 +135,17 @@ describe("POST /api/recipes/:id/bridge-jobs — create", () => {
       .bind(Date.now(), created.job.id)
       .run();
 
-    const retried = (await (await worker.fetch(makeReq(), makeEnv())).json()) as {
+    const unchanged = (await (await worker.fetch(makeReq(), makeEnv())).json()) as {
+      job: { id: string; status: string; attempts: number; safeError: string | null };
+    };
+    expect(unchanged.job).toMatchObject({
+      id: created.job.id,
+      status: "failed",
+      attempts: 3,
+      safeError: "Previous failure",
+    });
+
+    const retried = (await (await worker.fetch(makeReq(true), makeEnv())).json()) as {
       job: { id: string; status: string; attempts: number; safeError: string | null };
     };
     expect(retried.job).toMatchObject({

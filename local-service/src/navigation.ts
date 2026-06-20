@@ -45,6 +45,20 @@ export async function clickCreate(driver: Driver, jobId: string): Promise<void> 
     await btn.click();
     await driver.pause(800);
 
+    // xBloom 2.2.2 may show a recipe-type chooser before the editor.
+    // Select Coffee Recipe explicitly; Tea Recipe uses a different schema.
+    const coffeeRecipe = await driver.$(
+      `android=new UiSelector().resourceId("${APP_PACKAGE}:id/tv_coffee_recipe")`,
+    );
+    try {
+      await coffeeRecipe.waitForDisplayed({ timeout: 2500 });
+      await coffeeRecipe.click();
+      await driver.pause(500);
+      log.info("Coffee Recipe selected", { jobId, stage: "nav_recipe_type" });
+    } catch {
+      // Older app states open the coffee editor directly and have no chooser.
+    }
+
     // Confirm create screen loaded — wait for saveTv
     const saveTv = await driver.$(
       `android=new UiSelector().resourceId("${APP_PACKAGE}:id/saveTv")`,

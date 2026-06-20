@@ -148,7 +148,7 @@ export default function RecipeResult({ recipe, recipeId }: Props) {
                        focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta
                        text-center"
           >
-            Back to Recipe
+            Back for a New Recipe
           </a>
         </div>
       </div>

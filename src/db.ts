@@ -348,12 +348,13 @@ export async function listRecipesByOwner(db: D1Database, ownerId: string): Promi
 export async function createBridgeJobIfAbsent(
   db: D1Database,
   data: { id: string; recipeId: string; ownerId: string },
+  retryFailed = false,
 ): Promise<BridgeJobRow> {
   const existing = await db
     .prepare("SELECT * FROM bridge_jobs WHERE recipe_id = ?")
     .bind(data.recipeId)
     .first<BridgeJobRow>();
-  if (existing?.status === "failed") {
+  if (existing?.status === "failed" && retryFailed) {
     await db
       .prepare(
         `UPDATE bridge_jobs

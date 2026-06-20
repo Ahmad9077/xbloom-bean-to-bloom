@@ -48,8 +48,10 @@ const VALID_DRIPPERS: ReadonlySet<Dripper> = new Set(["Omni", "xPod", "Other"]);
 
 /** Fixed machine-water ratio for all cold recipes (16 g dose → 160 ml). */
 const COLD_RATIO_N = 10;
-/** Grams of ice added outside the machine after brewing. */
-export const COLD_ICE_G = 80;
+/** Grams of ice added outside the machine, yielding a 300 ml serving. */
+export const COLD_ICE_G = 140;
+export const COLD_TOTAL_MIN_ML = 280;
+export const COLD_TOTAL_MAX_ML = 320;
 
 // ---------------------------------------------------------------------------
 // Deterministic base parameters by roast level
@@ -192,7 +194,7 @@ function allocatePourVolumes(totalMl: number, roastLevel: RoastLevel): [number, 
  * The API layer defaults missing brewMode to "cold" per the product default.
  *
  * Cold mode: machine brews hot water at a fixed 1:10 ratio (16 g → 160 ml).
- * The xBloom machine has no cold setting; ice (80 g) is added outside the machine.
+ * The xBloom machine has no cold setting; 140 g ice yields a 300 ml serving.
  */
 export function generateRecipe(
   bean: BeanMetadata,
@@ -477,15 +479,20 @@ export function validateRecipeInvariants(recipe: Recipe): void {
     }
     if (
       !Number.isInteger(recipe.icedServing.iceG) ||
-      recipe.icedServing.iceG < 40 ||
+      recipe.icedServing.iceG < 100 ||
       recipe.icedServing.iceG > 160
     ) {
-      throw new InternalError("Cold recipe icedServing.iceG must be an integer from 40..160");
+      throw new InternalError("Cold recipe icedServing.iceG must be an integer from 100..160");
     }
     const expectedTotal = totalVolumeMl + recipe.icedServing.iceG;
     if (recipe.icedServing.totalBeverageMl !== expectedTotal) {
       throw new InternalError(
         `Cold recipe icedServing.totalBeverageMl must be ${expectedTotal}; got ${recipe.icedServing.totalBeverageMl}`,
+      );
+    }
+    if (expectedTotal < COLD_TOTAL_MIN_ML || expectedTotal > COLD_TOTAL_MAX_ML) {
+      throw new InternalError(
+        `Cold recipe total beverage must be ${COLD_TOTAL_MIN_ML}..${COLD_TOTAL_MAX_ML} ml`,
       );
     }
     const overallRatio = expectedTotal / doseG;

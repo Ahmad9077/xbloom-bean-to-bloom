@@ -31,7 +31,7 @@ export default function CloudBridge({ recipeId }: Props) {
     async function startPolling() {
       // Create or retrieve the bridge job (idempotent)
       try {
-        const initialJob = await apiCreateBridgeJob(recipeId);
+        const initialJob = await apiCreateBridgeJob(recipeId, retryNonce > 0);
         if (!mountedRef.current) return;
         if (applyJob(initialJob)) return;
       } catch (err) {

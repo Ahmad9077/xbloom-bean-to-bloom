@@ -169,6 +169,8 @@ describe("CloudBridge — failed state", () => {
     const addLink = await screen.findByRole("link", { name: /add recipe in xbloom app/i });
     expect(addLink).toHaveAttribute("href", "https://share-h5.xbloom.com/?id=retried");
     expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockCreate).toHaveBeenNthCalledWith(1, "r1", false);
+    expect(mockCreate).toHaveBeenNthCalledWith(2, "r1", true);
   });
 });
 

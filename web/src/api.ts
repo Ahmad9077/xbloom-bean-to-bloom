@@ -82,9 +82,11 @@ export async function apiGetRecipes(): Promise<RecipeListItem[]> {
 }
 
 // Bridge jobs
-export async function apiCreateBridgeJob(recipeId: string): Promise<BridgeJob> {
+export async function apiCreateBridgeJob(recipeId: string, retry = false): Promise<BridgeJob> {
   const data = await req(`/api/recipes/${encodeURIComponent(recipeId)}/bridge-jobs`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ retry }),
   });
   return (data as { job: BridgeJob }).job;
 }

@@ -30,11 +30,33 @@ export async function handleCreateBridgeJob(
     throw new NotFoundError("Recipe not found");
   }
 
-  const job = await createBridgeJobIfAbsent(env.DB, {
-    id: crypto.randomUUID(),
-    recipeId,
-    ownerId: ctx.userId,
-  });
+  let retryFailed = false;
+  if (request.headers.get("Content-Type")?.includes("application/json")) {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      throw new ClientError("Expected JSON body");
+    }
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      throw new ClientError("Invalid body");
+    }
+    const retry = (body as Record<string, unknown>).retry;
+    if (retry !== undefined && typeof retry !== "boolean") {
+      throw new ClientError('"retry" must be a boolean');
+    }
+    retryFailed = retry === true;
+  }
+
+  const job = await createBridgeJobIfAbsent(
+    env.DB,
+    {
+      id: crypto.randomUUID(),
+      recipeId,
+      ownerId: ctx.userId,
+    },
+    retryFailed,
+  );
 
   return new Response(JSON.stringify({ ok: true, requestId, job: serializeJob(job) }), {
     status: 200,

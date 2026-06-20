@@ -71,9 +71,9 @@ const COLD_RECIPE: Recipe = {
   ],
   bean: BASE_BEAN,
   icedServing: {
-    iceG: 80,
-    totalBeverageMl: 240,
-    instruction: "Serve over 80 g ice.",
+    iceG: 140,
+    totalBeverageMl: 300,
+    instruction: "Serve over 140 g ice.",
   },
 };
 
@@ -148,7 +148,7 @@ describe("RecipeResult — cold recipe", () => {
   it("displays the iced serving section with ice amount", () => {
     render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.getByRole("region", { name: /ice required/i })).toBeInTheDocument();
-    expect(screen.getAllByText(/80 g/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/140 g/i).length).toBeGreaterThan(0);
   });
 
   it("states ice is added outside the machine", () => {
@@ -156,9 +156,9 @@ describe("RecipeResult — cold recipe", () => {
     expect(screen.getByText(/before starting/i)).toBeInTheDocument();
   });
 
-  it("shows total beverage 240 ml", () => {
+  it("shows total beverage 300 ml", () => {
     render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
-    expect(screen.getAllByText(/240 ml/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/300 ml/i).length).toBeGreaterThan(0);
   });
 
   it("shows machine water volume 160 ml", () => {
@@ -185,9 +185,9 @@ describe("RecipeResult — hot recipe", () => {
     expect(screen.queryByRole("region", { name: /iced serving/i })).not.toBeInTheDocument();
   });
 
-  it("does not mention 80 g ice", () => {
+  it("does not mention 140 g ice", () => {
     render(<RecipeResult recipe={HOT_RECIPE} recipeId={RECIPE_ID} />);
-    expect(screen.queryByText(/80 g ice/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/140 g ice/i)).not.toBeInTheDocument();
   });
 });
 
@@ -195,6 +195,14 @@ describe("RecipeResult — current recipe link", () => {
   it("does not show the website recipe URL", () => {
     render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.queryByLabelText(/recipe url/i)).not.toBeInTheDocument();
+  });
+
+  it("offers a clear return to create another recipe", () => {
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
+    expect(screen.getByRole("link", { name: /back for a new recipe/i })).toHaveAttribute(
+      "href",
+      "/",
+    );
   });
 });
 
