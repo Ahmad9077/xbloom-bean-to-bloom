@@ -1,5 +1,11 @@
 export type BrewMode = "cold" | "hot";
 
+export interface AuthUser {
+  id: string;
+  username: string;
+  role: "admin" | "user";
+}
+
 export interface BeanMetadata {
   coffeeType: string;
   variety: string;
@@ -42,38 +48,29 @@ export interface Recipe {
   icedServing?: IcedServingInstruction;
 }
 
-export interface RecipeSuccess {
-  ok: true;
-  requestId: string;
-  recipe: Recipe;
+export interface RecipeListItem {
+  id: string;
+  fullName: string;
+  beanName: string;
+  createdAt: number;
+  link: string;
 }
 
-export interface ApiError {
-  ok: false;
-  requestId: string;
-  error: {
-    code: string;
-    message: string;
-  };
+export interface BridgeJob {
+  id: string;
+  recipeId: string;
+  status: "pending" | "claimed" | "completed" | "failed";
+  safeError?: string | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
-export type WorkerResponse = RecipeSuccess | ApiError;
-
-export interface BridgeSuccess {
-  ok: true;
-  jobId: string;
-  requestId: string;
-  recipeName: string;
-  message: string;
+export interface AdminUser {
+  id: string;
+  username: string;
+  role: "admin" | "user";
+  enabled: boolean;
+  isPrimary: boolean;
+  recipeCount: number;
+  createdAt: number;
 }
-
-export interface BridgeError {
-  ok: false;
-  requestId?: string;
-  error: {
-    code: string;
-    message: string;
-  };
-}
-
-export type BridgeResponse = BridgeSuccess | BridgeError;

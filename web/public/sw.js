@@ -1,33 +1,30 @@
-// Service worker: caches the static shell for offline access.
-// Derives the shell URL from the registration scope so it works at any
-// GitHub Pages subpath (e.g. /repo-name/) without hardcoding "/".
+// Service worker: caches only immutable hashed static assets (JS/CSS bundles).
 //
 // NEVER caches:
-//   • non-GET requests  (API POSTs, user image uploads)
-//   • Workers API calls (*.workers.dev)
-//   • local bridge      (127.0.0.1 or localhost)
+//   • HTML / navigation requests (auth state must be server-verified)
+//   • /api/* responses (private, dynamic)
+//   • Non-GET requests
+//
+// This keeps PWA behaviour safe for authenticated private content:
+// every page load hits the network so the server can enforce auth and redirect.
 
-const CACHE = "xbloom-shell-v1";
+const CACHE = "xbloom-assets-v2";
 
-// self.registration.scope is the fully-qualified URL of the SW scope,
-// e.g. "https://user.github.io/repo/" or "http://localhost:5173/".
-// We cache the scope root as the shell entry point.
-const SHELL_URL = self.registration.scope;
+// Only cache assets with content-hashed filenames (produced by Vite build).
+function isCacheableAsset(url) {
+  const path = new URL(url).pathname;
+  return path.startsWith("/assets/") && (path.endsWith(".js") || path.endsWith(".css"));
+}
 
-self.addEventListener("install", (e) => {
-  e.waitUntil(
-    caches.open(CACHE).then((c) =>
-      c.add(new Request(SHELL_URL, { cache: "reload" })),
-    ),
-  );
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))),
-    ),
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))),
   );
   self.clients.claim();
 });
@@ -35,27 +32,31 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const { request } = e;
 
-  // Never intercept non-GET requests (POSTs, uploads, etc.).
+  // Only handle GET.
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
 
-  // Never cache Worker API or local bridge calls.
-  if (url.hostname.endsWith("workers.dev")) return;
-  if (url.hostname === "127.0.0.1" || url.hostname === "localhost") return;
+  // Never intercept API calls.
+  if (url.pathname.startsWith("/api/")) return;
 
-  // For navigation requests: serve cached shell, fall back to network.
-  if (request.mode === "navigate") {
+  // Never intercept navigation (HTML) — let the server handle auth redirects.
+  if (request.mode === "navigate") return;
+
+  // Cache-first for hashed static assets only.
+  if (isCacheableAsset(request.url)) {
     e.respondWith(
-      caches
-        .match(SHELL_URL)
-        .then((cached) => cached ?? fetch(request)),
+      caches.match(request).then(
+        (cached) =>
+          cached ??
+          fetch(request).then((res) => {
+            if (res.ok) {
+              const clone = res.clone();
+              caches.open(CACHE).then((c) => c.put(request, clone));
+            }
+            return res;
+          }),
+      ),
     );
-    return;
   }
-
-  // Static assets: cache-first, fill from network.
-  e.respondWith(
-    caches.match(request).then((cached) => cached ?? fetch(request)),
-  );
 });

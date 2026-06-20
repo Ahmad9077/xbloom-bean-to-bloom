@@ -1,7 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import ImageUpload from "../components/ImageUpload.js";
+import MultiPhotoUpload from "../components/MultiPhotoUpload.js";
 
 // jsdom doesn't implement URL.createObjectURL
 if (!globalThis.URL.createObjectURL) {
@@ -16,78 +16,151 @@ function makeFile(name: string, type: string, size = 1024): File {
   return new File([blob], name, { type });
 }
 
-describe("ImageUpload", () => {
-  it("renders the upload drop zone when no file is selected", () => {
-    render(<ImageUpload file={null} onChange={vi.fn()} />);
-    expect(screen.getByRole("button", { name: /upload/i })).toBeInTheDocument();
+describe("MultiPhotoUpload — initial state", () => {
+  it("shows Take photo and Choose from album buttons when no files", () => {
+    render(<MultiPhotoUpload files={[]} onChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /take photo/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /choose from album/i })).toBeInTheDocument();
   });
 
-  it("accepts a valid JPEG file and calls onChange", async () => {
+  it("shows instruction text when no files", () => {
+    render(<MultiPhotoUpload files={[]} onChange={vi.fn()} />);
+    expect(screen.getByText(/up to 4 photos/i)).toBeInTheDocument();
+  });
+});
+
+describe("MultiPhotoUpload — file acceptance", () => {
+  it("accepts JPEG from album input and calls onChange", async () => {
     const onChange = vi.fn();
-    render(<ImageUpload file={null} onChange={onChange} />);
-    const input = screen.getByLabelText(/choose a coffee bag photo/i);
+    render(<MultiPhotoUpload files={[]} onChange={onChange} />);
+    const input = screen.getByLabelText(/album input/i);
     const file = makeFile("bag.jpg", "image/jpeg");
     await userEvent.upload(input, file);
-    expect(onChange).toHaveBeenCalledWith(file);
+    expect(onChange).toHaveBeenCalledWith([file]);
   });
 
-  it("accepts a valid PNG file", async () => {
+  it("accepts PNG file", async () => {
     const onChange = vi.fn();
-    render(<ImageUpload file={null} onChange={onChange} />);
-    const input = screen.getByLabelText(/choose a coffee bag photo/i);
+    render(<MultiPhotoUpload files={[]} onChange={onChange} />);
+    const input = screen.getByLabelText(/album input/i);
     const file = makeFile("bag.png", "image/png");
     await userEvent.upload(input, file);
-    expect(onChange).toHaveBeenCalledWith(file);
+    expect(onChange).toHaveBeenCalledWith([file]);
   });
 
-  it("accepts a valid WebP file", async () => {
+  it("accepts WebP file", async () => {
     const onChange = vi.fn();
-    render(<ImageUpload file={null} onChange={onChange} />);
-    const input = screen.getByLabelText(/choose a coffee bag photo/i);
+    render(<MultiPhotoUpload files={[]} onChange={onChange} />);
+    const input = screen.getByLabelText(/album input/i);
     const file = makeFile("bag.webp", "image/webp");
     await userEvent.upload(input, file);
-    expect(onChange).toHaveBeenCalledWith(file);
+    expect(onChange).toHaveBeenCalledWith([file]);
+  });
+});
+
+describe("MultiPhotoUpload — HEIC rejection", () => {
+  it("shows HEIC unsupported error", async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    const onChange = vi.fn();
+    render(<MultiPhotoUpload files={[]} onChange={onChange} />);
+    const input = screen.getByLabelText(/album input/i);
+    const file = makeFile("photo.heic", "image/heic");
+    await user.upload(input, file);
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/heic.*not supported/i);
+    });
+    expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("rejects an unsupported format and shows error", async () => {
-    const onChange = vi.fn();
-    // applyAccept:false bypasses the input's accept attribute so the JS validator runs
+  it("shows HEIC error for .heif extension", async () => {
     const user = userEvent.setup({ applyAccept: false });
-    render(<ImageUpload file={null} onChange={onChange} />);
-    const input = screen.getByLabelText(/choose a coffee bag photo/i);
+    render(<MultiPhotoUpload files={[]} onChange={vi.fn()} />);
+    const input = screen.getByLabelText(/album input/i);
+    const file = makeFile("photo.heif", "image/heif");
+    await user.upload(input, file);
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/heic.*not supported/i);
+    });
+  });
+});
+
+describe("MultiPhotoUpload — unsupported format", () => {
+  it("rejects BMP and shows error", async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    const onChange = vi.fn();
+    render(<MultiPhotoUpload files={[]} onChange={onChange} />);
+    const input = screen.getByLabelText(/album input/i);
     const file = makeFile("bag.bmp", "image/bmp");
     await user.upload(input, file);
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/unsupported format/i);
+    });
     expect(onChange).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent(/unsupported format/i);
   });
+});
 
-  it("rejects a file that is too large and shows error", async () => {
+describe("MultiPhotoUpload — size validation", () => {
+  it("rejects a file that is too large", async () => {
     const onChange = vi.fn();
-    render(<ImageUpload file={null} onChange={onChange} />);
-    const input = screen.getByLabelText(/choose a coffee bag photo/i);
+    render(<MultiPhotoUpload files={[]} onChange={onChange} />);
+    const input = screen.getByLabelText(/album input/i);
     const file = makeFile("big.jpg", "image/jpeg", 11 * 1024 * 1024);
     await userEvent.upload(input, file);
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/too large/i);
+    });
     expect(onChange).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent(/too large/i);
   });
+});
 
-  it("shows a Remove button when a file is selected", async () => {
+describe("MultiPhotoUpload — multi-photo grid", () => {
+  it("shows photo grid with remove buttons when files present", () => {
     const file = makeFile("bag.jpg", "image/jpeg");
-    render(<ImageUpload file={file} onChange={vi.fn()} />);
-    expect(screen.getByRole("button", { name: /remove/i })).toBeInTheDocument();
+    render(<MultiPhotoUpload files={[file]} onChange={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /remove photo 1/i })).toBeInTheDocument();
   });
 
-  it("calls onChange with null when Remove is clicked", async () => {
+  it("shows photo count", () => {
+    const files = [makeFile("a.jpg", "image/jpeg"), makeFile("b.jpg", "image/jpeg")];
+    render(<MultiPhotoUpload files={files} onChange={vi.fn()} />);
+    expect(screen.getByText(/2 of 4/i)).toBeInTheDocument();
+  });
+
+  it("calls onChange with file removed when remove button clicked", async () => {
     const onChange = vi.fn();
-    const file = makeFile("bag.jpg", "image/jpeg");
-    render(<ImageUpload file={file} onChange={onChange} />);
-    await userEvent.click(screen.getByRole("button", { name: /remove/i }));
-    expect(onChange).toHaveBeenCalledWith(null);
+    const files = [makeFile("a.jpg", "image/jpeg"), makeFile("b.jpg", "image/jpeg")];
+    render(<MultiPhotoUpload files={files} onChange={onChange} />);
+    const firstRemove = screen.getAllByRole("button", { name: /remove photo/i })[0];
+    if (!firstRemove) throw new Error("Remove button missing");
+    await userEvent.click(firstRemove);
+    expect(onChange).toHaveBeenCalledWith([files[1]]);
   });
 
-  it("is disabled when disabled=true", () => {
-    render(<ImageUpload file={null} onChange={vi.fn()} disabled />);
-    const input = screen.getByLabelText(/choose a coffee bag photo/i);
-    expect(input).toBeDisabled();
+  it("hides add buttons when 4 photos selected", () => {
+    const files = Array.from({ length: 4 }, (_, i) => makeFile(`f${i}.jpg`, "image/jpeg"));
+    render(<MultiPhotoUpload files={files} onChange={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /take photo/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /choose from album/i })).not.toBeInTheDocument();
+  });
+
+  it("camera input has capture=environment attribute", () => {
+    render(<MultiPhotoUpload files={[]} onChange={vi.fn()} />);
+    const cameraInput = screen.getByLabelText(/camera input/i);
+    expect(cameraInput).toHaveAttribute("capture", "environment");
+  });
+
+  it("album input has multiple attribute and no capture", () => {
+    render(<MultiPhotoUpload files={[]} onChange={vi.fn()} />);
+    const albumInput = screen.getByLabelText(/album input/i);
+    expect(albumInput).toHaveAttribute("multiple");
+    expect(albumInput).not.toHaveAttribute("capture");
+  });
+});
+
+describe("MultiPhotoUpload — disabled state", () => {
+  it("disables inputs when disabled=true", () => {
+    render(<MultiPhotoUpload files={[]} onChange={vi.fn()} disabled />);
+    expect(screen.getByLabelText(/camera input/i)).toBeDisabled();
+    expect(screen.getByLabelText(/album input/i)).toBeDisabled();
   });
 });

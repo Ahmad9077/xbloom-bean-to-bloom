@@ -1,160 +1,97 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import LocalBridge from "../components/LocalBridge.js";
-import type { Recipe } from "../types.js";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import CloudBridge from "../components/CloudBridge.js";
+import type { BridgeJob } from "../types.js";
 
-// Mock the api module
 vi.mock("../api.js", () => ({
-  checkBridge: vi.fn(),
-  saveRecipe: vi.fn(),
+  apiCreateBridgeJob: vi.fn(),
+  apiGetBridgeJob: vi.fn(),
+  ApiError: class ApiError extends Error {
+    code: string;
+    status: number;
+    constructor(message: string, code: string, status: number) {
+      super(message);
+      this.code = code;
+      this.status = status;
+    }
+  },
 }));
 
-import { checkBridge, saveRecipe } from "../api.js";
+import { apiCreateBridgeJob, apiGetBridgeJob } from "../api.js";
+const mockCreate = vi.mocked(apiCreateBridgeJob);
+const mockGet = vi.mocked(apiGetBridgeJob);
 
-const mockCheckBridge = vi.mocked(checkBridge);
-const mockSaveRecipe = vi.mocked(saveRecipe);
-
-const RECIPE: Recipe = {
-  name: "Ethiopia Iced Light Roast",
-  machine: "xBloom Studio",
-  dripper: "Omni",
-  brewMode: "cold",
-  brewRatio: "1:10",
-  totalVolumeMl: 160,
-  doseG: 16,
-  grindSize: 19,
-  rpm: 100,
-  pours: [
-    {
-      label: "Bloom",
-      volumeMl: 160,
-      tempC: 92,
-      flowRateMlPerSec: 3.0,
-      pauseSec: 40,
-      pattern: "centered",
-      agitationBefore: false,
-      agitationAfter: false,
-    },
-  ],
-  bean: {
-    coffeeType: "Single Origin",
-    variety: "Heirloom",
-    origin: "Ethiopia",
-    processingMethod: "Washed",
-    roastLevel: "light",
-    flavors: [],
-    description: "Test.",
-  },
-  icedServing: { iceG: 80, totalBeverageMl: 240, instruction: "Serve over ice." },
+const PENDING_JOB: BridgeJob = {
+  id: "j-1",
+  recipeId: "r-1",
+  status: "pending",
+  createdAt: Date.parse("2024-01-01T00:00:00Z"),
+  updatedAt: Date.parse("2024-01-01T00:00:00Z"),
+  safeError: null,
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
-describe("LocalBridge — initial state", () => {
-  it("renders the Add to my xBloom button initially", () => {
-    render(<LocalBridge recipe={RECIPE} idempotencyKey="key-1" />);
-    expect(screen.getByRole("button", { name: /add to my xbloom/i })).toBeInTheDocument();
-  });
-
-  it("explains the bridge requirement", () => {
-    render(<LocalBridge recipe={RECIPE} idempotencyKey="key-1" />);
-    expect(screen.getByText(/mac emulator bridge/i)).toBeInTheDocument();
+describe("CloudBridge — initial state", () => {
+  it("renders the initial connecting status", async () => {
+    mockCreate.mockImplementation(() => new Promise(() => {}));
+    render(<CloudBridge recipeId="r-1" />);
+    expect(screen.getByRole("status")).toBeInTheDocument();
   });
 });
 
-describe("LocalBridge — bridge available, save succeeds", () => {
-  it("shows saving state then saved state on success", async () => {
-    mockCheckBridge.mockResolvedValue(true);
-    mockSaveRecipe.mockResolvedValue({
-      ok: true,
-      jobId: "j-1",
-      requestId: "r-1",
-      recipeName: RECIPE.name,
-      message: "Recipe saved successfully",
-    });
+describe("CloudBridge — bridge available, pending", () => {
+  it("shows pending state after job created", async () => {
+    mockCreate.mockResolvedValue(PENDING_JOB);
+    mockGet.mockResolvedValue(PENDING_JOB);
 
-    render(<LocalBridge recipe={RECIPE} idempotencyKey="key-1" />);
-    await userEvent.click(screen.getByRole("button", { name: /add to my xbloom/i }));
+    render(<CloudBridge recipeId="r-1" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("status")).toHaveTextContent(/saved/i);
+      expect(screen.getByRole("status")).toHaveTextContent(/waiting for mac bridge/i);
     });
-    expect(screen.getByText(/ethiopia iced light roast/i)).toBeInTheDocument();
+  });
+
+  it("explains the bridge without exposing server paths", async () => {
+    mockCreate.mockResolvedValue(PENDING_JOB);
+    mockGet.mockResolvedValue(PENDING_JOB);
+
+    render(<CloudBridge recipeId="r-1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/cloud bridge job/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/127\.0\.0\.1/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/localhost/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/local-service/)).not.toBeInTheDocument();
   });
 });
 
-describe("LocalBridge — bridge unavailable", () => {
-  it("shows unavailable message when bridge check fails", async () => {
-    mockCheckBridge.mockResolvedValue(false);
+describe("CloudBridge — completed", () => {
+  it("shows success when job completes", async () => {
+    mockCreate.mockResolvedValue({ ...PENDING_JOB, status: "completed" });
+    mockGet.mockResolvedValue({ ...PENDING_JOB, status: "completed" });
 
-    render(<LocalBridge recipe={RECIPE} idempotencyKey="key-2" />);
-    await userEvent.click(screen.getByRole("button", { name: /add to my xbloom/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/bridge not available/i);
-    });
-    expect(screen.getByText(/not running/i)).toBeInTheDocument();
-  });
-
-  it("shows a Try again button when unavailable", async () => {
-    mockCheckBridge.mockResolvedValue(false);
-
-    render(<LocalBridge recipe={RECIPE} idempotencyKey="key-2" />);
-    await userEvent.click(screen.getByRole("button", { name: /add to my xbloom/i }));
+    render(<CloudBridge recipeId="r-1" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent(/sent to xbloom studio/i);
     });
   });
 });
 
-describe("LocalBridge — save error", () => {
-  it("shows error state when saveRecipe returns ok:false", async () => {
-    mockCheckBridge.mockResolvedValue(true);
-    mockSaveRecipe.mockResolvedValue({
-      ok: false,
-      requestId: "r-1",
-      error: { code: "SAVE_FAILED", message: "App timed out." },
-    });
+describe("CloudBridge — failed", () => {
+  it("shows failure alert when job fails", async () => {
+    mockCreate.mockResolvedValue({ ...PENDING_JOB, status: "failed", safeError: "App timed out." });
+    mockGet.mockResolvedValue({ ...PENDING_JOB, status: "failed", safeError: "App timed out." });
 
-    render(<LocalBridge recipe={RECIPE} idempotencyKey="key-3" />);
-    await userEvent.click(screen.getByRole("button", { name: /add to my xbloom/i }));
+    render(<CloudBridge recipeId="r-1" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/save failed/i);
+      expect(screen.getByRole("alert")).toHaveTextContent(/bridge delivery failed/i);
     });
     expect(screen.getByText(/app timed out/i)).toBeInTheDocument();
-  });
-
-  it("shows error state when saveRecipe throws (network error)", async () => {
-    mockCheckBridge.mockResolvedValue(true);
-    mockSaveRecipe.mockRejectedValue(new Error("Connection refused"));
-
-    render(<LocalBridge recipe={RECIPE} idempotencyKey="key-4" />);
-    await userEvent.click(screen.getByRole("button", { name: /add to my xbloom/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/save failed/i);
-    });
-    expect(screen.getByText(/connection refused/i)).toBeInTheDocument();
-  });
-
-  it("shows Try again after error", async () => {
-    mockCheckBridge.mockResolvedValue(true);
-    mockSaveRecipe.mockRejectedValue(new Error("Connection refused"));
-
-    render(<LocalBridge recipe={RECIPE} idempotencyKey="key-5" />);
-    await userEvent.click(screen.getByRole("button", { name: /add to my xbloom/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
-    });
   });
 });

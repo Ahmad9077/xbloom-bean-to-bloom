@@ -1,21 +1,8 @@
-import { useId } from "react";
+import { useState } from "react";
 import type { Recipe } from "../types.js";
-import LocalBridge from "./LocalBridge.js";
+import CloudBridge from "./CloudBridge.js";
 import PourTimeline from "./PourTimeline.js";
 import StepProgress from "./StepProgress.js";
-
-function makeIdempotencyKey(recipe: Recipe): string {
-  return `${recipe.name}-${recipe.brewMode}-${recipe.totalVolumeMl}-${recipe.grindSize}`.replace(
-    /\s+/g,
-    "-",
-  );
-}
-
-interface Props {
-  recipe: Recipe;
-  requestId: string;
-  onStartOver: () => void;
-}
 
 const ROAST_LABEL: Record<string, string> = {
   light: "Light Roast",
@@ -23,22 +10,40 @@ const ROAST_LABEL: Record<string, string> = {
   dark: "Dark Roast",
 };
 
-// Result screen: Photo complete, Recipe active, xBloom next
 const RESULT_STEPS = [
   { label: "Photo", status: "complete" as const },
   { label: "Recipe", status: "active" as const },
   { label: "xBloom", status: "next" as const },
 ];
 
-export default function RecipeResult({ recipe, requestId, onStartOver }: Props) {
-  const idKey = useId();
-  const idempotencyKey = `${idKey}-${makeIdempotencyKey(recipe)}`;
+interface Props {
+  recipe: Recipe;
+  recipeId: string;
+  link: string;
+}
 
+export default function RecipeResult({ recipe, recipeId, link }: Props) {
+  const [copied, setCopied] = useState(false);
   const isIced = recipe.brewMode === "cold";
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch {
+      const el = document.createElement("input");
+      el.value = link;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  }
 
   return (
     <main className="min-h-screen bg-ivory">
-      {/* Hero header — flat espresso block, no gradient */}
+      {/* Hero header */}
       <header className="bg-espresso text-ivory px-6 pt-8 pb-6">
         <div className="max-w-2xl mx-auto">
           <div className="mb-4">
@@ -60,7 +65,7 @@ export default function RecipeResult({ recipe, requestId, onStartOver }: Props) 
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
-        {/* Iced serving note — prominent, above everything else for cold */}
+        {/* Iced serving note */}
         {isIced && recipe.icedServing && (
           <section
             aria-labelledby="iced-heading"
@@ -85,6 +90,35 @@ export default function RecipeResult({ recipe, requestId, onStartOver }: Props) 
             </p>
           </section>
         )}
+
+        {/* Stable link */}
+        <section aria-labelledby="link-heading">
+          <h2
+            id="link-heading"
+            className="font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3"
+          >
+            Recipe Link
+          </h2>
+          <div className="bg-white rounded-card p-4 flex items-center gap-3">
+            <span
+              className="text-sm text-espresso/70 flex-1 truncate font-body"
+              title={link}
+              aria-label="Recipe URL"
+            >
+              {link}
+            </span>
+            <button
+              type="button"
+              onClick={copyLink}
+              aria-label={copied ? "Link copied" : "Copy link to clipboard"}
+              className="flex-shrink-0 min-h-touch px-4 py-2 bg-espresso text-ivory text-xs
+                         font-semibold font-body rounded-[12px] transition-opacity hover:opacity-80
+                         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+            >
+              {copied ? "Link copied" : "Copy Link"}
+            </button>
+          </div>
+        </section>
 
         {/* Bean details */}
         <section aria-labelledby="bean-heading">
@@ -152,31 +186,28 @@ export default function RecipeResult({ recipe, requestId, onStartOver }: Props) 
           <PourTimeline pours={recipe.pours} />
         </section>
 
-        {/* Local bridge */}
-        <section aria-labelledby="save-heading">
+        {/* Cloud bridge */}
+        <section aria-labelledby="bridge-heading">
           <h2
-            id="save-heading"
+            id="bridge-heading"
             className="font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3"
           >
-            Save to xBloom Studio
+            Send to xBloom Studio
           </h2>
-          <LocalBridge recipe={recipe} idempotencyKey={idempotencyKey} />
+          <CloudBridge recipeId={recipeId} />
         </section>
 
-        {/* Start over */}
         <div className="pt-2 pb-8">
-          <button
-            type="button"
-            onClick={onStartOver}
-            className="w-full min-h-touch border border-espresso/30 text-espresso font-body
+          <a
+            href="/"
+            className="block w-full min-h-touch border border-espresso/30 text-espresso font-body
                        font-semibold rounded-card py-4 transition-colors hover:bg-espresso/5
-                       focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+                       focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta
+                       text-center"
           >
-            Start Over
-          </button>
+            New Recipe
+          </a>
         </div>
-
-        <p className="text-center text-xs text-espresso/30 pb-4">Request ID: {requestId}</p>
       </div>
     </main>
   );
