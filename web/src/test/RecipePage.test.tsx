@@ -1,5 +1,4 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthContext } from "../context/AuthContext.js";
@@ -118,34 +117,13 @@ describe("RecipePage — recipe display", () => {
     });
   });
 
-  it("shows stable current-origin URL", async () => {
+  it("does not show the current website recipe URL", async () => {
     mockGetRecipe.mockResolvedValue(RECIPE);
     renderPage("abc123");
     await waitFor(() => {
-      expect(screen.getByLabelText(/recipe url/i)).toHaveTextContent(/recipes\/abc123/);
+      expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
     });
-  });
-
-  it("shows Copy Link button", async () => {
-    mockGetRecipe.mockResolvedValue(RECIPE);
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /copy link/i })).toBeInTheDocument();
-    });
-  });
-
-  it("copies link to clipboard", async () => {
-    mockGetRecipe.mockResolvedValue(RECIPE);
-    renderPage("abc123");
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /copy link/i })).toBeInTheDocument();
-    });
-    await userEvent.click(screen.getByRole("button", { name: /copy link/i }));
-    await waitFor(() => {
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        expect.stringContaining("/recipes/abc123"),
-      );
-    });
+    expect(screen.queryByLabelText(/recipe url/i)).not.toBeInTheDocument();
   });
 
   it("sets document title to recipe name", async () => {

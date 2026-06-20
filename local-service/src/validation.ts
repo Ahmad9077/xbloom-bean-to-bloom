@@ -29,6 +29,7 @@ const bypassSchema = z.object({
 });
 
 const beanSchema = z.object({
+  beanName: z.string().max(100).optional(),
   coffeeType: z.string().max(100),
   variety: z.string().max(100),
   origin: z.string().max(100),
@@ -153,22 +154,6 @@ export function validateRequest(body: unknown): ValidatedRequest {
   // Cold/hot metadata consistency (brewMode absent = backward-compatible, no check).
   // The xBloom app has no cold-mode field; these fields are accepted and stored only.
   if (recipe.brewMode === "cold") {
-    // Cold contract: doseG=16, brewRatio="1:10", totalVolumeMl=160
-    if (recipe.doseG !== 16) {
-      throw new ServiceError(
-        ErrorCode.VALIDATION_ERROR,
-        `Cold recipe doseG must be 16; got ${recipe.doseG}`,
-        422,
-      );
-    }
-    if (ratioN !== 10) {
-      throw new ServiceError(
-        ErrorCode.VALIDATION_ERROR,
-        `Cold recipe brewRatio must be "1:10"; got "${recipe.brewRatio}"`,
-        422,
-      );
-    }
-    // totalVolumeMl=160 follows from doseG×ratioN already enforced above.
     if (!recipe.icedServing) {
       throw new ServiceError(
         ErrorCode.VALIDATION_ERROR,
@@ -176,18 +161,26 @@ export function validateRequest(body: unknown): ValidatedRequest {
         422,
       );
     }
-    if (recipe.icedServing.iceG !== 80) {
+    if (recipe.icedServing.iceG < 40 || recipe.icedServing.iceG > 160) {
       throw new ServiceError(
         ErrorCode.VALIDATION_ERROR,
-        `Cold recipe icedServing.iceG must be 80; got ${recipe.icedServing.iceG}`,
+        `Cold recipe icedServing.iceG must be 40..160; got ${recipe.icedServing.iceG}`,
         422,
       );
     }
-    const expectedTotal = recipe.totalVolumeMl + 80;
+    const expectedTotal = recipe.totalVolumeMl + recipe.icedServing.iceG;
     if (recipe.icedServing.totalBeverageMl !== expectedTotal) {
       throw new ServiceError(
         ErrorCode.VALIDATION_ERROR,
-        `Cold recipe icedServing.totalBeverageMl must equal totalVolumeMl+80 (${expectedTotal}); got ${recipe.icedServing.totalBeverageMl}`,
+        `Cold recipe icedServing.totalBeverageMl must equal water+ice (${expectedTotal}); got ${recipe.icedServing.totalBeverageMl}`,
+        422,
+      );
+    }
+    const overallRatio = expectedTotal / recipe.doseG;
+    if (overallRatio < 12 || overallRatio > 20) {
+      throw new ServiceError(
+        ErrorCode.VALIDATION_ERROR,
+        "Cold recipe overall beverage ratio must be between 1:12 and 1:20",
         422,
       );
     }

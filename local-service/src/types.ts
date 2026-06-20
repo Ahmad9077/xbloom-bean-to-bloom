@@ -15,6 +15,7 @@ export interface Bypass {
 }
 
 export interface Bean {
+  beanName?: string | undefined;
   coffeeType: string;
   variety: string;
   origin: string;
@@ -105,4 +106,6 @@ export interface Config {
   cloudWorkerUrl?: string;
   bridgeToken?: string;
   bridgePollIntervalMs?: number;
+  codexBinary: string;
+  codexWorkDir: string;
 }

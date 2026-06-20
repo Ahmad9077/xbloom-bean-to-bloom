@@ -14,6 +14,7 @@ import {
   deleteExpiredSessions,
   pruneLoginAttempts,
   pruneOldBridgeJobs,
+  pruneOldRecommendationJobs,
   pruneRecipeAttempts,
 } from "./db.js";
 import {
@@ -31,6 +32,11 @@ import {
   handleGetBridgeJobStatus,
 } from "./routes/bridge.js";
 import { handleFromImages, handleGetRecipe, handleListRecipes } from "./routes/recipes.js";
+import {
+  handleGetRecommendation,
+  handleRecommendationComplete,
+  handleRecommendationNext,
+} from "./routes/recommendations.js";
 
 // ---------------------------------------------------------------------------
 // Response builder
@@ -137,6 +143,14 @@ export default {
         return secureApiResponse(await handleListRecipes(request, env, requestId));
       }
 
+      const recommendationMatch = pathname.match(/^\/api\/recommendations\/([^/]+)$/);
+      if (recommendationMatch) {
+        if (method !== "GET") throw new MethodNotAllowedError("Use GET");
+        return secureApiResponse(
+          await handleGetRecommendation(request, env, requestId, recommendationMatch[1] as string),
+        );
+      }
+
       // /api/recipes/:id and /api/recipes/:id/bridge-jobs
       const recipeMatch = pathname.match(/^\/api\/recipes\/([^/]+)(\/bridge-jobs)?$/);
       if (recipeMatch) {
@@ -185,6 +199,26 @@ export default {
       if (pathname === "/api/bridge/jobs/next") {
         if (method !== "GET") throw new MethodNotAllowedError("Use GET");
         return secureApiResponse(await handleBridgeNextJob(request, env, requestId));
+      }
+
+      if (pathname === "/api/bridge/recommendations/next") {
+        if (method !== "GET") throw new MethodNotAllowedError("Use GET");
+        return secureApiResponse(await handleRecommendationNext(request, env, requestId));
+      }
+
+      const recommendationCompleteMatch = pathname.match(
+        /^\/api\/bridge\/recommendations\/([^/]+)\/complete$/,
+      );
+      if (recommendationCompleteMatch) {
+        if (method !== "POST") throw new MethodNotAllowedError("Use POST");
+        return secureApiResponse(
+          await handleRecommendationComplete(
+            request,
+            env,
+            requestId,
+            recommendationCompleteMatch[1] as string,
+          ),
+        );
       }
 
       const bridgeCompleteMatch = pathname.match(/^\/api\/bridge\/jobs\/([^/]+)\/complete$/);
@@ -280,6 +314,7 @@ export default {
         pruneLoginAttempts(env.DB),
         pruneRecipeAttempts(env.DB),
         pruneOldBridgeJobs(env.DB),
+        pruneOldRecommendationJobs(env.DB),
       ]);
     } catch (err) {
       console.error(

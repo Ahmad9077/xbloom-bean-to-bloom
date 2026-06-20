@@ -250,8 +250,7 @@ describe("validateRequest", () => {
     );
   });
 
-  // Cold complete contract: doseG=16, brewRatio="1:10", totalVolumeMl=160
-  it("rejects cold recipe with doseG !== 16", () => {
+  it("accepts a valid cold recipe with a different dose", () => {
     const bad = {
       ...coldRecipe,
       doseG: 15,
@@ -260,10 +259,10 @@ describe("validateRequest", () => {
       pours: [{ ...coldPour, volumeMl: 150 }],
       icedServing: { iceG: 80, totalBeverageMl: 230, instruction: "ice" },
     };
-    expect(() => validateRequest({ recipe: bad, confirmSave: true })).toThrowError(/doseG/);
+    expect(() => validateRequest({ recipe: bad, confirmSave: true })).not.toThrow();
   });
 
-  it("rejects cold recipe with brewRatio !== 1:10", () => {
+  it("accepts a valid cold recipe with a different machine ratio", () => {
     const bad = {
       ...coldRecipe,
       brewRatio: "1:14",
@@ -271,7 +270,7 @@ describe("validateRequest", () => {
       pours: [{ ...coldPour, volumeMl: 224 }],
       icedServing: { iceG: 80, totalBeverageMl: 304, instruction: "ice" },
     };
-    expect(() => validateRequest({ recipe: bad, confirmSave: true })).toThrowError(/brewRatio/);
+    expect(() => validateRequest({ recipe: bad, confirmSave: true })).not.toThrow();
   });
 
   it("rejects cold recipe with totalVolumeMl !== 160 (inconsistent with 1:10)", () => {
@@ -291,7 +290,10 @@ describe("validateRequest", () => {
   });
 
   it("rejects cold recipe with wrong iceG", () => {
-    const bad = { ...coldRecipe, icedServing: { ...coldRecipe.icedServing, iceG: 60 } };
+    const bad = {
+      ...coldRecipe,
+      icedServing: { ...coldRecipe.icedServing, iceG: 200, totalBeverageMl: 360 },
+    };
     expect(() => validateRequest({ recipe: bad, confirmSave: true })).toThrowError(/iceG/);
   });
 

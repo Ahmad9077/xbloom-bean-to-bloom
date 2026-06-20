@@ -102,6 +102,10 @@ function AdminDashboard({ currentUserId }: { currentUserId: string }) {
     }
     try {
       await apiUpdateUser(resetTarget.id, { password: resetPassword });
+      if (resetTarget.id === currentUserId) {
+        window.location.assign("/login");
+        return;
+      }
       showSuccess(`Password updated for ${resetTarget.username}.`);
       setResetTarget(null);
       setResetPassword("");
@@ -144,17 +148,33 @@ function AdminDashboard({ currentUserId }: { currentUserId: string }) {
   return (
     <main className="min-h-screen bg-ivory px-4 py-8">
       <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h1 className="font-heading text-3xl text-espresso">Admin Dashboard</h1>
-          <button
-            type="button"
-            onClick={() => setShowCreate((v) => !v)}
-            className="font-body text-xs font-semibold uppercase tracking-widest px-4 min-h-touch
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const me = users.find((u) => u.id === currentUserId);
+                if (me) setResetTarget(me);
+                setResetPassword("");
+                setResetError(null);
+              }}
+              className="font-body text-xs font-semibold uppercase tracking-widest px-4 min-h-touch
+                         border border-espresso text-espresso rounded-card hover:bg-espresso/5
+                         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
+            >
+              Change my password
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCreate((v) => !v)}
+              className="font-body text-xs font-semibold uppercase tracking-widest px-4 min-h-touch
                        bg-espresso text-ivory rounded-card hover:opacity-90 transition-opacity
                        focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-          >
-            {showCreate ? "Cancel" : "Create User"}
-          </button>
+            >
+              {showCreate ? "Cancel" : "Create User"}
+            </button>
+          </div>
         </div>
 
         {actionSuccess && (
@@ -350,11 +370,14 @@ function AdminDashboard({ currentUserId }: { currentUserId: string }) {
         >
           <div className="bg-ivory rounded-card p-6 max-w-sm w-full space-y-4">
             <h2 id="reset-title" className="font-heading text-xl text-espresso">
-              Reset password
+              {resetTarget.id === currentUserId ? "Change my password" : "Reset password"}
             </h2>
             <p className="text-sm text-espresso/60">
               New password for <strong>{resetTarget.username}</strong>
             </p>
+            {resetTarget.id === currentUserId && (
+              <p className="text-xs text-sage">You will be signed out after changing it.</p>
+            )}
             <input
               type="password"
               autoComplete="new-password"

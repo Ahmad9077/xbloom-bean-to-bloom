@@ -313,7 +313,7 @@ async function verifyPourTotal(
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
 
-async function saveRecipe(driver: Driver, recipeName: string, jobId: string): Promise<void> {
+async function saveRecipe(driver: Driver, recipeName: string, jobId: string): Promise<string> {
   log.info("Clicking Save", { jobId, stage: "save_click" });
 
   const saveTv = await driver.$(sel("saveTv"));
@@ -361,6 +361,38 @@ async function saveRecipe(driver: Driver, recipeName: string, jobId: string): Pr
   );
   await recipeItem.waitForExist({ timeout: 15000 });
   log.info("Recipe saved and confirmed in My Recipes", { jobId, stage: "save_done" });
+
+  // Open the official recipe detail and ask the xBloom app to generate its own
+  // share link. This is the only supported source of an importable xBloom URL.
+  await recipeItem.click();
+  const shareButton = await driver.$(sel("shareIv"));
+  await shareButton.waitForDisplayed({ timeout: 10000 });
+  await shareButton.click();
+  const shareGrid = await driver.$(sel("shareRcv"));
+  await shareGrid.waitForDisplayed({ timeout: 8000 });
+  await driver.setClipboard(Buffer.from("").toString("base64"), "plaintext").catch(() => {});
+  const linkItem = await driver.$(
+    `android=new UiSelector().resourceId("${PKG}:id/nameTv").text("Link")`,
+  );
+  await linkItem.waitForDisplayed({ timeout: 8000 });
+  await linkItem.click();
+  await driver.pause(1000);
+  const encodedClipboard = await driver.getClipboard("plaintext");
+  const clipboard = Buffer.from(encodedClipboard, "base64").toString("utf8");
+  const match = /https:\/\/share-h5\.xbloom\.com\/\?id=[^\s]+/.exec(clipboard);
+  if (!match) {
+    throw new ServiceError(ErrorCode.SLIDER_SET_FAILED, "xBloom did not create a share link", 500);
+  }
+  const shareUrl = new URL(match[0]);
+  if (shareUrl.protocol !== "https:" || shareUrl.hostname !== "share-h5.xbloom.com") {
+    throw new ServiceError(
+      ErrorCode.SLIDER_SET_FAILED,
+      "xBloom returned an invalid share link",
+      500,
+    );
+  }
+  log.info("xBloom share link created", { jobId, stage: "share_link_done" });
+  return shareUrl.toString();
 }
 
 // ─── Screenshot ───────────────────────────────────────────────────────────────
@@ -395,7 +427,7 @@ export async function createRecipe(
   recipe: Recipe,
   opts: AutomationOptions,
   jobId: string,
-): Promise<void> {
+): Promise<{ shareLink?: string }> {
   await navigateToRecipes(driver, jobId);
   await clickCreate(driver, jobId);
 
@@ -427,10 +459,11 @@ export async function createRecipe(
   if (opts.dryRun) {
     log.info("Dry-run complete — backing out", { jobId, stage: "dry_run_exit" });
     await dryRunExit(driver, jobId);
-    return;
+    return {};
   }
 
   if (opts.confirmSave) {
-    await saveRecipe(driver, recipe.name, jobId);
+    return { shareLink: await saveRecipe(driver, recipe.name, jobId) };
   }
+  return {};
 }

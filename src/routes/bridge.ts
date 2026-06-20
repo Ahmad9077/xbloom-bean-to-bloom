@@ -142,13 +142,14 @@ export async function handleBridgeCompleteJob(
 
   const rawError = typeof obj.safeError === "string" ? obj.safeError : null;
   const safeError = rawError ? rawError.slice(0, 500) : null;
+  const shareLink = status === "completed" ? parseShareLink(obj.shareLink) : null;
 
   const job = await getBridgeJobById(env.DB, jobId);
   if (!job || job.status !== "claimed") {
     throw new NotFoundError("Job not found or not in claimed state");
   }
 
-  await completeBridgeJob(env.DB, jobId, status, safeError);
+  await completeBridgeJob(env.DB, jobId, status, safeError, shareLink);
 
   return new Response(JSON.stringify({ ok: true, requestId }), {
     status: 200,
@@ -170,5 +171,21 @@ function serializeJob(job: BridgeJobRow) {
     updatedAt: job.updated_at,
     completedAt: job.completed_at,
     safeError: job.safe_error,
+    shareLink: job.share_link,
   };
+}
+
+function parseShareLink(value: unknown): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value !== "string" || value.length > 500) throw new ClientError("Invalid share link");
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ClientError("Invalid share link");
+  }
+  if (url.protocol !== "https:" || url.hostname !== "share-h5.xbloom.com") {
+    throw new ClientError("Invalid xBloom share link");
+  }
+  return url.toString();
 }

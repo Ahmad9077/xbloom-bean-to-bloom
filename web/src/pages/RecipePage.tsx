@@ -11,7 +11,6 @@ export default function RecipePage() {
   const [error, setError] = useState<string | null>(null);
 
   const recipeId = id ?? "";
-  const link = `${window.location.origin}/recipes/${encodeURIComponent(recipeId)}`;
 
   useEffect(() => {
     if (!recipeId) {
@@ -75,5 +74,5 @@ export default function RecipePage() {
     );
   }
 
-  return <RecipeResult recipe={recipe} recipeId={recipeId} link={link} />;
+  return <RecipeResult recipe={recipe} recipeId={recipeId} />;
 }

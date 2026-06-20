@@ -9,7 +9,13 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MIGRATION_SQL = readFileSync(join(__dirname, "../migrations/0001_auth_recipes.sql"), "utf8");
+const MIGRATION_SQL = [
+  readFileSync(join(__dirname, "../migrations/0001_auth_recipes.sql"), "utf8"),
+  readFileSync(
+    join(__dirname, "../migrations/0002_ai_recommendations_and_share_links.sql"),
+    "utf8",
+  ),
+].join("\n");
 
 // ---------------------------------------------------------------------------
 // D1PreparedStatement shim

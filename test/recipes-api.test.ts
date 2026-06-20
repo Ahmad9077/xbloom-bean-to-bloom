@@ -120,20 +120,19 @@ describe("POST /api/recipes/from-images — auth", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/recipes/from-images — happy path", () => {
-  it("returns 201 with recipe and id on success", async () => {
+  it("returns 202 with a pending recommendation job", async () => {
     const { cookieHeader } = await createTestSession();
     const req = makeImagesRequest(
       [{ bytes: makeJpegBytes(), name: "bag.jpg", mime: "image/jpeg" }],
       cookieHeader,
     );
     const res = await worker.fetch(req, makeEnv());
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.ok).toBe(true);
-    expect(typeof body.id).toBe("string");
-    expect(typeof body.link).toBe("string");
-    const recipe = body.recipe as Record<string, unknown>;
-    expect(recipe.machine).toBe("xBloom Studio");
+    const job = body.job as Record<string, unknown>;
+    expect(typeof job.id).toBe("string");
+    expect(job.status).toBe("pending");
   });
 
   it("recipe name is server-assigned: Username – BeanName (en dash)", async () => {
@@ -144,8 +143,15 @@ describe("POST /api/recipes/from-images — happy path", () => {
     );
     const res = await worker.fetch(req, makeEnv());
     const body = (await res.json()) as Record<string, unknown>;
-    const recipe = body.recipe as Record<string, unknown>;
-    const name = recipe.name as string;
+    const jobId = (body.job as { id: string }).id;
+    const row = await db
+      .prepare("SELECT * FROM recommendation_jobs WHERE id = ?")
+      .bind(jobId)
+      .first<{
+        username_display: string;
+        bean_name: string;
+      }>();
+    const name = `${row?.username_display} – ${row?.bean_name}`;
     // Name must start with the display username
     expect(name).toContain(username);
     // Must contain an en dash
@@ -163,31 +169,35 @@ describe("POST /api/recipes/from-images — happy path", () => {
     );
     const res = await worker.fetch(req, makeEnv({ AI: emptyBeanNameAI }));
     const body = (await res.json()) as Record<string, unknown>;
-    const recipe = body.recipe as Record<string, unknown>;
-    expect(recipe.name as string).toContain("Unknown Bean");
+    const jobId = (body.job as { id: string }).id;
+    const row = await db
+      .prepare("SELECT bean_name FROM recommendation_jobs WHERE id = ?")
+      .bind(jobId)
+      .first<{ bean_name: string }>();
+    expect(row?.bean_name).toBe("Unknown Bean");
   });
 
-  it("recipe is stored in DB and retrievable by owner", async () => {
-    const { id: ownerId, cookieHeader, token } = await createTestSession();
+  it("recommendation status is retrievable by its owner", async () => {
+    const { cookieHeader, token } = await createTestSession();
     const req = makeImagesRequest(
       [{ bytes: makeJpegBytes(), name: "bag.jpg", mime: "image/jpeg" }],
       cookieHeader,
     );
     const res = await worker.fetch(req, makeEnv());
     const body = (await res.json()) as Record<string, unknown>;
-    const recipeId = body.id as string;
+    const jobId = (body.job as { id: string }).id;
 
     // Retrieve via GET /api/recipes/:id
-    const getReq = new Request(`http://localhost/api/recipes/${recipeId}`, {
+    const getReq = new Request(`http://localhost/api/recommendations/${jobId}`, {
       headers: { Cookie: `${COOKIE_NAME}=${token}` },
     });
     const getRes = await worker.fetch(getReq, makeEnv());
     expect(getRes.status).toBe(200);
     const getBody = (await getRes.json()) as Record<string, unknown>;
-    expect(getBody.id).toBe(recipeId);
+    expect((getBody.job as { id: string }).id).toBe(jobId);
   });
 
-  it("image bytes are NOT stored in the recipe DB row", async () => {
+  it("image bytes are NOT stored in the recommendation job", async () => {
     const { cookieHeader } = await createTestSession();
     const req = makeImagesRequest(
       [{ bytes: makeJpegBytes(), name: "bag.jpg", mime: "image/jpeg" }],
@@ -195,15 +205,15 @@ describe("POST /api/recipes/from-images — happy path", () => {
     );
     const res = await worker.fetch(req, makeEnv());
     const body = (await res.json()) as Record<string, unknown>;
-    const recipeId = body.id as string;
+    const jobId = (body.job as { id: string }).id;
 
     // Inspect the raw DB row — recipe_json must not contain base64 image data
     const row = await db
-      .prepare("SELECT recipe_json FROM recipes WHERE id = ?")
-      .bind(recipeId)
-      .first<{ recipe_json: string }>();
+      .prepare("SELECT bean_json FROM recommendation_jobs WHERE id = ?")
+      .bind(jobId)
+      .first<{ bean_json: string }>();
     expect(row).not.toBeNull();
-    const json = row?.recipe_json ?? "";
+    const json = row?.bean_json ?? "";
     // base64 data URLs start with "data:"
     expect(json).not.toContain("data:image");
     // No raw JPEG magic bytes in stored JSON
@@ -220,7 +230,7 @@ describe("POST /api/recipes/from-images — happy path", () => {
       headers: { Cookie: cookieHeader, Origin: "http://localhost" },
     });
     const res = await worker.fetch(req, makeEnv());
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
   });
 });
 
@@ -299,7 +309,7 @@ describe("POST /api/recipes/from-images — image validation", () => {
         headers: { Cookie: cookieHeader, Origin: "http://localhost" },
       });
       const res = await worker.fetch(req, makeEnv());
-      expect(res.status).toBe(201);
+      expect(res.status).toBe(202);
     }
   });
 });
@@ -387,7 +397,7 @@ describe("GET /api/recipes/:id — ownership", () => {
     );
     const res = await worker.fetch(req, makeEnv());
     const body = (await res.json()) as Record<string, unknown>;
-    const id = body.id as string;
+    const id = (body.job as { id: string }).id;
     // UUID format: 8-4-4-4-12
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
@@ -431,10 +441,14 @@ describe("Unicode beanName sanitization", () => {
       cookieHeader,
     );
     const res = await worker.fetch(req, makeEnv({ AI: makeMockAIBean(arabicBean) }));
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
     const body = (await res.json()) as Record<string, unknown>;
-    const recipe = body.recipe as Record<string, unknown>;
-    expect(recipe.name as string).toContain("قهوة يمنية");
+    const jobId = (body.job as { id: string }).id;
+    const row = await db
+      .prepare("SELECT bean_name FROM recommendation_jobs WHERE id = ?")
+      .bind(jobId)
+      .first<{ bean_name: string }>();
+    expect(row?.bean_name).toBe("قهوة يمنية");
   });
 
   it("strips HTML delimiters from beanName before storage", async () => {
@@ -445,10 +459,14 @@ describe("Unicode beanName sanitization", () => {
       cookieHeader,
     );
     const res = await worker.fetch(req, makeEnv({ AI: makeMockAIBean(xssBean) }));
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
     const body = (await res.json()) as Record<string, unknown>;
-    const recipe = body.recipe as Record<string, unknown>;
-    expect(recipe.name as string).not.toContain("<script>");
-    expect(recipe.name as string).not.toContain("<");
+    const jobId = (body.job as { id: string }).id;
+    const row = await db
+      .prepare("SELECT bean_name FROM recommendation_jobs WHERE id = ?")
+      .bind(jobId)
+      .first<{ bean_name: string }>();
+    expect(row?.bean_name).not.toContain("<script>");
+    expect(row?.bean_name).not.toContain("<");
   });
 });

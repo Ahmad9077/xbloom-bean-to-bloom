@@ -7,7 +7,7 @@ export async function runRecipeAutomation(
   recipe: Recipe,
   jobId: string,
   options: { dryRun: boolean; confirmSave: boolean },
-): Promise<void> {
+): Promise<{ shareLink?: string }> {
   let driver: Awaited<ReturnType<typeof createDriver>> | undefined;
   try {
     driver = await createDriver({
@@ -18,7 +18,7 @@ export async function runRecipeAutomation(
       jobId,
     });
 
-    await createRecipe(
+    return await createRecipe(
       driver,
       recipe,
       {

@@ -31,7 +31,8 @@ Mac local-service ← polls /api/bridge/jobs/next (bearer token)
 | `src/routes/admin.ts` | User management |
 | `src/routes/bridge.ts` | Bridge queue endpoints |
 | `src/vision.ts` | Workers AI extraction (beanName + multi-image) |
-| `src/recipe.ts` | Deterministic recipe generation |
+| `src/recipe.ts` | xBloom Studio recipe validation and legacy deterministic fallback helpers |
+| `src/routes/recommendations.ts` | Private D1 queue between the Worker and Mac Codex recommender |
 | `src/sanitize.ts` | Username and model-string sanitization |
 
 ---
@@ -151,6 +152,18 @@ npm run deploy         # build SPA + deploy Worker
 |---|---|
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile CAPTCHA (optional) |
 | `BRIDGE_TOKEN_HASH` | SHA-256 hex of Mac bridge bearer token |
+
+## AI recommendation flow
+
+Workers AI reads the uploaded bag photos and stores only sanitized bean text in a private D1 job.
+The authenticated Mac bridge claims that job and runs an isolated, ephemeral Codex CLI request
+using `gpt-5.4-mini` with tools, plugins, browsing, memory, and shell access disabled. The Worker
+overwrites identity fields from the authenticated job, validates every xBloom Studio field and
+only then stores the recipe. A Codex usage-limit failure is shown to the user; it does not silently
+substitute a generic recipe.
+
+After Appium saves the recipe, it asks the official xBloom app to create a share link. Only HTTPS
+links on `share-h5.xbloom.com` are accepted and returned to the recipe owner.
 
 ## Production deployment on this Mac
 

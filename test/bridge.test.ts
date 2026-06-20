@@ -310,17 +310,21 @@ describe("POST /api/bridge/jobs/:id/complete", () => {
         "Content-Type": "application/json",
         Authorization: `Bearer ${BRIDGE_TOKEN}`,
       },
-      body: JSON.stringify({ status: "completed" }),
+      body: JSON.stringify({
+        status: "completed",
+        shareLink: "https://share-h5.xbloom.com/?id=official-test",
+      }),
     });
     const completeRes = await worker.fetch(completeReq, makeEnv());
     expect(completeRes.status).toBe(200);
 
     // Job status should now be completed
     const row = await db
-      .prepare("SELECT status FROM bridge_jobs WHERE id = ?")
+      .prepare("SELECT status, share_link FROM bridge_jobs WHERE id = ?")
       .bind(jobId)
-      .first<{ status: string }>();
+      .first<{ status: string; share_link: string }>();
     expect(row?.status).toBe("completed");
+    expect(row?.share_link).toBe("https://share-h5.xbloom.com/?id=official-test");
   });
 
   it("marks job as failed with safeError", async () => {

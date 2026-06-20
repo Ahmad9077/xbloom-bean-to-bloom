@@ -1,5 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import RecipeResult from "../components/RecipeResult.js";
 import type { Recipe } from "../types.js";
@@ -123,7 +122,6 @@ const HOT_RECIPE: Recipe = {
   bean: BASE_BEAN,
 };
 
-const LINK = "https://example.com/recipes/abc123";
 const RECIPE_ID = "abc123";
 
 beforeEach(() => {
@@ -136,40 +134,40 @@ beforeEach(() => {
 
 describe("RecipeResult — cold recipe", () => {
   it("renders the recipe name", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
       "Ethiopia Iced Light Roast",
     );
   });
 
   it("shows 'Iced Pour-Over' badge", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.getByText(/iced pour-over/i)).toBeInTheDocument();
   });
 
   it("displays the iced serving section with ice amount", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
-    expect(screen.getByRole("region", { name: /iced serving/i })).toBeInTheDocument();
-    expect(screen.getByText(/80 g ice/i)).toBeInTheDocument();
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
+    expect(screen.getByRole("region", { name: /ice required/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/80 g/i).length).toBeGreaterThan(0);
   });
 
   it("states ice is added outside the machine", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
-    expect(screen.getByText(/outside the xbloom machine/i)).toBeInTheDocument();
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
+    expect(screen.getByText(/before starting/i)).toBeInTheDocument();
   });
 
   it("shows total beverage 240 ml", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.getAllByText(/240 ml/i).length).toBeGreaterThan(0);
   });
 
   it("shows machine water volume 160 ml", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.getAllByText(/160 ml/i).length).toBeGreaterThan(0);
   });
 
   it("renders the pour timeline with all pours", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.getByText("Bloom")).toBeInTheDocument();
     expect(screen.getByText("Pour 2")).toBeInTheDocument();
     expect(screen.getByText("Pour 3")).toBeInTheDocument();
@@ -178,55 +176,42 @@ describe("RecipeResult — cold recipe", () => {
 
 describe("RecipeResult — hot recipe", () => {
   it("shows 'Hot Pour-Over' badge", () => {
-    render(<RecipeResult recipe={HOT_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
+    render(<RecipeResult recipe={HOT_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.getByText(/hot pour-over/i)).toBeInTheDocument();
   });
 
   it("does not show the iced serving section", () => {
-    render(<RecipeResult recipe={HOT_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
+    render(<RecipeResult recipe={HOT_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.queryByRole("region", { name: /iced serving/i })).not.toBeInTheDocument();
   });
 
   it("does not mention 80 g ice", () => {
-    render(<RecipeResult recipe={HOT_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
+    render(<RecipeResult recipe={HOT_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.queryByText(/80 g ice/i)).not.toBeInTheDocument();
   });
 });
 
-describe("RecipeResult — link and copy", () => {
-  it("shows the stable recipe URL", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
-    expect(screen.getByLabelText(/recipe url/i)).toHaveTextContent(LINK);
-  });
-
-  it("shows Copy Link button", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
-    expect(screen.getByRole("button", { name: /copy link/i })).toBeInTheDocument();
-  });
-
-  it("shows 'Link copied' feedback after clicking Copy Link", async () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
-    await userEvent.click(screen.getByRole("button", { name: /copy link/i }));
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /link copied/i })).toBeInTheDocument();
-    });
+describe("RecipeResult — current recipe link", () => {
+  it("does not show the website recipe URL", () => {
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
+    expect(screen.queryByLabelText(/recipe url/i)).not.toBeInTheDocument();
   });
 });
 
 describe("RecipeResult — bean details", () => {
   it("shows bean origin", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.getAllByText(/ethiopia/i).length).toBeGreaterThan(0);
   });
 
   it("shows flavors as tags", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.getByText("blueberry")).toBeInTheDocument();
     expect(screen.getByText("jasmine")).toBeInTheDocument();
   });
 
   it("shows grind and RPM", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} link={LINK} />);
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.getByText("19")).toBeInTheDocument();
     expect(screen.getByText("100")).toBeInTheDocument();
   });

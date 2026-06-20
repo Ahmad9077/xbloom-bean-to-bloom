@@ -475,21 +475,29 @@ export function validateRecipeInvariants(recipe: Recipe): void {
     if (!recipe.icedServing) {
       throw new InternalError("Cold recipe must have icedServing");
     }
-    if (recipe.icedServing.iceG !== COLD_ICE_G) {
-      throw new InternalError(
-        `Cold recipe icedServing.iceG must be ${COLD_ICE_G}; got ${recipe.icedServing.iceG}`,
-      );
+    if (
+      !Number.isInteger(recipe.icedServing.iceG) ||
+      recipe.icedServing.iceG < 40 ||
+      recipe.icedServing.iceG > 160
+    ) {
+      throw new InternalError("Cold recipe icedServing.iceG must be an integer from 40..160");
     }
-    const expectedTotal = totalVolumeMl + COLD_ICE_G;
+    const expectedTotal = totalVolumeMl + recipe.icedServing.iceG;
     if (recipe.icedServing.totalBeverageMl !== expectedTotal) {
       throw new InternalError(
         `Cold recipe icedServing.totalBeverageMl must be ${expectedTotal}; got ${recipe.icedServing.totalBeverageMl}`,
       );
     }
-    if (ratioN !== COLD_RATIO_N) {
-      throw new InternalError(
-        `Cold recipe brewRatio must be "1:${COLD_RATIO_N}"; got "1:${ratioN}"`,
-      );
+    const overallRatio = expectedTotal / doseG;
+    if (overallRatio < 12 || overallRatio > 20) {
+      throw new InternalError("Cold recipe total beverage ratio must be between 1:12 and 1:20");
+    }
+    if (
+      typeof recipe.icedServing.instruction !== "string" ||
+      recipe.icedServing.instruction.trim() === "" ||
+      recipe.icedServing.instruction.length > 500
+    ) {
+      throw new InternalError("Cold recipe icedServing.instruction is invalid");
     }
   }
 

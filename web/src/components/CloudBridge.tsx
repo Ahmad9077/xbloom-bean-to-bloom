@@ -6,7 +6,7 @@ type CloudBridgeState =
   | { kind: "enqueuing" }
   | { kind: "pending" }
   | { kind: "claimed" }
-  | { kind: "completed" }
+  | { kind: "completed"; shareLink?: string }
   | { kind: "failed"; error?: string }
   | { kind: "apiError"; message: string };
 
@@ -86,7 +86,7 @@ export default function CloudBridge({ recipeId }: Props) {
         setState({ kind: "claimed" });
         return false;
       case "completed":
-        setState({ kind: "completed" });
+        setState({ kind: "completed", shareLink: job.shareLink ?? undefined });
         return true;
       case "failed":
         setState({ kind: "failed", error: job.safeError ?? undefined });
@@ -146,6 +146,14 @@ export default function CloudBridge({ recipeId }: Props) {
         <p className="text-xs text-green-700 mt-1">
           The recipe has been delivered to your xBloom Studio via the Mac bridge.
         </p>
+        {state.shareLink && (
+          <a
+            href={state.shareLink}
+            className="mt-4 flex min-h-touch items-center justify-center rounded-card bg-espresso px-4 py-3 text-sm font-semibold text-ivory"
+          >
+            Open in xBloom app to add recipe
+          </a>
+        )}
       </output>
     );
   }

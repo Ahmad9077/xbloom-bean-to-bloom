@@ -88,6 +88,7 @@ describe("CloudBridge — completed state", () => {
       id: "j1",
       recipeId: "r1",
       status: "completed",
+      shareLink: "https://share-h5.xbloom.com/?id=test",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -104,6 +105,10 @@ describe("CloudBridge — completed state", () => {
     await waitFor(() => {
       expect(screen.getByRole("status")).toHaveTextContent(/sent to xbloom studio/i);
     });
+    expect(screen.getByRole("link", { name: /open in xbloom app/i })).toHaveAttribute(
+      "href",
+      "https://share-h5.xbloom.com/?id=test",
+    );
   });
 });
 

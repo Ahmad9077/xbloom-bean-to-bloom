@@ -416,7 +416,7 @@ describe("generateRecipe — cold mode", () => {
   it("validateRecipeInvariants throws when cold recipe has wrong iceG", () => {
     const r = generateRecipe(LIGHT_BEAN, "Omni", "cold");
     const base = r.icedServing ?? { iceG: COLD_ICE_G, totalBeverageMl: 240, instruction: "" };
-    const bad = { ...r, icedServing: { ...base, iceG: 100 } };
+    const bad = { ...r, icedServing: { ...base, iceG: 200, totalBeverageMl: 360 } };
     expect(() => validateRecipeInvariants(bad)).toThrow(/iceG/);
   });
 

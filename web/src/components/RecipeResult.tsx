@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { Recipe } from "../types.js";
 import CloudBridge from "./CloudBridge.js";
 import PourTimeline from "./PourTimeline.js";
@@ -19,27 +18,10 @@ const RESULT_STEPS = [
 interface Props {
   recipe: Recipe;
   recipeId: string;
-  link: string;
 }
 
-export default function RecipeResult({ recipe, recipeId, link }: Props) {
-  const [copied, setCopied] = useState(false);
+export default function RecipeResult({ recipe, recipeId }: Props) {
   const isIced = recipe.brewMode === "cold";
-
-  async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(link);
-    } catch {
-      const el = document.createElement("input");
-      el.value = link;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand("copy");
-      document.body.removeChild(el);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
-  }
 
   return (
     <main className="min-h-screen bg-ivory">
@@ -70,55 +52,26 @@ export default function RecipeResult({ recipe, recipeId, link }: Props) {
           <section
             aria-labelledby="iced-heading"
             aria-label="Iced Serving"
-            className="bg-sage/10 border border-sage/30 rounded-card p-4"
+            className="bg-sage/10 border-2 border-sage/40 rounded-card p-5 text-center"
           >
             <h2
               id="iced-heading"
               className="font-body text-xs font-semibold uppercase tracking-widest text-sage mb-2"
             >
-              Iced Serving
+              Ice Required Before Brewing
             </h2>
-            <p className="text-sm text-espresso">
-              Serve over <strong>{recipe.icedServing.iceG} g ice</strong> outside the xBloom
-              machine. The machine brews {recipe.totalVolumeMl} ml of hot coffee; the ice is{" "}
-              <strong>added by you after brewing</strong>. Total beverage:{" "}
-              <strong>{recipe.icedServing.totalBeverageMl} ml</strong> (overall 1:
-              {Math.round(recipe.icedServing.totalBeverageMl / recipe.doseG)} ratio).
+            <p className="font-heading text-5xl text-espresso my-2">{recipe.icedServing.iceG} g</p>
+            <p className="text-base font-semibold text-espresso">ICE</p>
+            <p className="text-sm text-espresso/80 mt-3">
+              Put exactly <strong>{recipe.icedServing.iceG} g of ice</strong> in your serving glass
+              or carafe before starting. xBloom brews {recipe.totalVolumeMl} ml of hot coffee over
+              it, making about {recipe.icedServing.totalBeverageMl} ml total.
             </p>
             <p className="text-xs text-sage mt-2">
-              The xBloom machine has no cold setting — it always brews hot water.
+              Ice is measured separately and is not entered in the xBloom app.
             </p>
           </section>
         )}
-
-        {/* Stable link */}
-        <section aria-labelledby="link-heading">
-          <h2
-            id="link-heading"
-            className="font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3"
-          >
-            Recipe Link
-          </h2>
-          <div className="bg-white rounded-card p-4 flex items-center gap-3">
-            <span
-              className="text-sm text-espresso/70 flex-1 truncate font-body"
-              title={link}
-              aria-label="Recipe URL"
-            >
-              {link}
-            </span>
-            <button
-              type="button"
-              onClick={copyLink}
-              aria-label={copied ? "Link copied" : "Copy link to clipboard"}
-              className="flex-shrink-0 min-h-touch px-4 py-2 bg-espresso text-ivory text-xs
-                         font-semibold font-body rounded-[12px] transition-opacity hover:opacity-80
-                         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-            >
-              {copied ? "Link copied" : "Copy Link"}
-            </button>
-          </div>
-        </section>
 
         {/* Bean details */}
         <section aria-labelledby="bean-heading">

@@ -7,6 +7,7 @@ import NewRecipePage from "../pages/NewRecipePage.js";
 
 vi.mock("../api.js", () => ({
   apiCreateRecipe: vi.fn(),
+  apiGetRecommendation: vi.fn(),
   compressImage: vi.fn((f: File) => Promise.resolve(f)),
   ApiError: class ApiError extends Error {
     code: string;
@@ -19,8 +20,9 @@ vi.mock("../api.js", () => ({
   },
 }));
 
-import { ApiError, apiCreateRecipe, compressImage } from "../api.js";
+import { ApiError, apiCreateRecipe, apiGetRecommendation, compressImage } from "../api.js";
 const mockApiCreateRecipe = vi.mocked(apiCreateRecipe);
+const mockApiGetRecommendation = vi.mocked(apiGetRecommendation);
 const mockCompress = vi.mocked(compressImage);
 
 // jsdom stubs
@@ -59,6 +61,11 @@ function renderPage() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockCompress.mockImplementation((f: File) => Promise.resolve(f));
+  mockApiGetRecommendation.mockResolvedValue({
+    id: "job-1",
+    status: "completed",
+    recipeId: "recipe-1",
+  });
 });
 
 describe("NewRecipePage — brew mode", () => {
@@ -124,9 +131,7 @@ describe("NewRecipePage — photo upload", () => {
 describe("NewRecipePage — submission", () => {
   it("calls apiCreateRecipe with cold mode by default", async () => {
     mockApiCreateRecipe.mockResolvedValue({
-      id: "recipe-1",
-      link: "https://example.com/recipes/recipe-1",
-      recipe: {} as never,
+      job: { id: "job-1", status: "pending" },
     });
     renderPage();
     const albumInput = screen.getByLabelText(/album input/i);
@@ -139,9 +144,7 @@ describe("NewRecipePage — submission", () => {
 
   it("calls apiCreateRecipe with hot mode when Hot selected", async () => {
     mockApiCreateRecipe.mockResolvedValue({
-      id: "recipe-2",
-      link: "https://example.com/recipes/recipe-2",
-      recipe: {} as never,
+      job: { id: "job-2", status: "pending" },
     });
     renderPage();
     await userEvent.click(screen.getByRole("radio", { name: "Hot" }));
@@ -155,9 +158,12 @@ describe("NewRecipePage — submission", () => {
 
   it("navigates to /recipes/:id after success", async () => {
     mockApiCreateRecipe.mockResolvedValue({
-      id: "abc123",
-      link: "https://example.com/recipes/abc123",
-      recipe: {} as never,
+      job: { id: "job-3", status: "pending" },
+    });
+    mockApiGetRecommendation.mockResolvedValue({
+      id: "job-3",
+      status: "completed",
+      recipeId: "abc123",
     });
     renderPage();
     const albumInput = screen.getByLabelText(/album input/i);
@@ -181,9 +187,7 @@ describe("NewRecipePage — submission", () => {
 
   it("clears photos after upload settles (success)", async () => {
     mockApiCreateRecipe.mockResolvedValue({
-      id: "abc",
-      link: "http://x.com/recipes/abc",
-      recipe: {} as never,
+      job: { id: "job-abc", status: "pending" },
     });
     renderPage();
     const albumInput = screen.getByLabelText(/album input/i);

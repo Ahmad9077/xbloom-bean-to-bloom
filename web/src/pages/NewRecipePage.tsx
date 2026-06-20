@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ApiError, apiCreateRecipe, compressImage } from "../api.js";
+import { ApiError, apiCreateRecipe, apiGetRecommendation, compressImage } from "../api.js";
 import BrewModeSelector from "../components/BrewModeSelector.js";
 import MultiPhotoUpload from "../components/MultiPhotoUpload.js";
 import StepProgress from "../components/StepProgress.js";
@@ -21,7 +21,7 @@ const LOADING_STEPS = [
 type Stage =
   | { kind: "upload" }
   | { kind: "compressing" }
-  | { kind: "loading" }
+  | { kind: "loading"; message?: string }
   | { kind: "error"; message: string; code?: string };
 
 export default function NewRecipePage() {
@@ -44,12 +44,14 @@ export default function NewRecipePage() {
       return;
     }
 
-    setStage({ kind: "loading" });
+    setStage({ kind: "loading", message: "Analysing your coffee bag…" });
 
     try {
       const result = await apiCreateRecipe(compressed, brewMode);
       setFiles([]);
-      navigate(`/recipes/${result.id}`);
+      setStage({ kind: "loading", message: "Codex is designing a bean-specific recipe…" });
+      const recipeId = await waitForRecommendation(result.job.id);
+      navigate(`/recipes/${recipeId}`);
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -126,7 +128,7 @@ export default function NewRecipePage() {
               aria-hidden="true"
             />
             <p className="text-sm text-sage">
-              {stage.kind === "compressing" ? "Preparing photos…" : "Analysing your coffee bag…"}
+              {stage.kind === "compressing" ? "Preparing photos…" : stage.message}
             </p>
           </output>
         )}
@@ -148,4 +150,16 @@ export default function NewRecipePage() {
       </div>
     </main>
   );
+}
+
+async function waitForRecommendation(jobId: string): Promise<string> {
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const job = await apiGetRecommendation(jobId);
+    if (job.status === "completed" && job.recipeId) return job.recipeId;
+    if (job.status === "failed") {
+      throw new Error(job.safeError || "Codex could not create this recipe. Please try again.");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+  }
+  throw new Error("Recipe recommendation timed out. Please try again.");
 }
