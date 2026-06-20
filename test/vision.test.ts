@@ -17,9 +17,10 @@ import {
   makeMockAIResponse,
   makePngBytes,
   makeWebpBytes,
+  singleImageData,
 } from "./fixtures.js";
 
-const JPEG_BYTES = makeJpegBytes().buffer as ArrayBuffer;
+const JPEG_BUF = makeJpegBytes().buffer as ArrayBuffer;
 
 function makeEnv(ai: { run: (model: string, inputs: unknown) => Promise<{ response?: unknown }> }) {
   return { ...MOCK_ENV, AI: ai } as unknown as Env;
@@ -49,14 +50,19 @@ describe("validateBeanMetadata", () => {
     expect(() => validateBeanMetadata(noOrigin)).toThrow(/origin/);
   });
 
+  it("throws when beanName field is missing", () => {
+    const { beanName: _removed, ...noName } = LIGHT_BEAN;
+    expect(() => validateBeanMetadata(noName)).toThrow(/beanName/);
+  });
+
   it("throws when input is not an object", () => {
     expect(() => validateBeanMetadata("string")).toThrow(/object/);
     expect(() => validateBeanMetadata(null)).toThrow(/object/);
     expect(() => validateBeanMetadata(42)).toThrow(/object/);
   });
 
-  it("accepts empty strings for optional-text fields", () => {
-    const bean = { ...LIGHT_BEAN, variety: "", origin: "" };
+  it("accepts empty strings for optional-text fields including beanName", () => {
+    const bean = { ...LIGHT_BEAN, beanName: "", variety: "", origin: "" };
     expect(() => validateBeanMetadata(bean)).not.toThrow();
   });
 
@@ -73,8 +79,7 @@ describe("validateBeanMetadata", () => {
 describe("extractBeanMetadata", () => {
   it("returns parsed bean metadata on success (plain JSON string)", async () => {
     const result = await extractBeanMetadata(
-      JPEG_BYTES,
-      "image/jpeg",
+      singleImageData(JPEG_BUF, "image/jpeg"),
       makeEnv(makeMockAIBean(LIGHT_BEAN)),
     );
     expect(result).toEqual(LIGHT_BEAN);
@@ -82,67 +87,75 @@ describe("extractBeanMetadata", () => {
 
   it("accepts a response wrapped in a Markdown JSON code fence", async () => {
     const fenced = `\`\`\`json\n${JSON.stringify(LIGHT_BEAN)}\n\`\`\``;
-    const result = await extractBeanMetadata(JPEG_BYTES, "image/jpeg", makeEnv(makeMockAI(fenced)));
+    const result = await extractBeanMetadata(
+      singleImageData(JPEG_BUF, "image/jpeg"),
+      makeEnv(makeMockAI(fenced)),
+    );
     expect(result).toEqual(LIGHT_BEAN);
   });
 
   it("accepts a code fence without language tag", async () => {
     const fenced = `\`\`\`\n${JSON.stringify(LIGHT_BEAN)}\n\`\`\``;
-    const result = await extractBeanMetadata(JPEG_BYTES, "image/jpeg", makeEnv(makeMockAI(fenced)));
+    const result = await extractBeanMetadata(
+      singleImageData(JPEG_BUF, "image/jpeg"),
+      makeEnv(makeMockAI(fenced)),
+    );
     expect(result).toEqual(LIGHT_BEAN);
   });
 
-  it("throws UpstreamMalformedError when response is prose (not JSON)", async () => {
+  it("accepts one validated JSON object wrapped in a short prose preamble", async () => {
     const proseAI = makeMockAI(`Here is your metadata: ${JSON.stringify(LIGHT_BEAN)}`);
     await expect(
-      extractBeanMetadata(JPEG_BYTES, "image/jpeg", makeEnv(proseAI)),
-    ).rejects.toMatchObject({ code: "UPSTREAM_MALFORMED" });
+      extractBeanMetadata(singleImageData(JPEG_BUF, "image/jpeg"), makeEnv(proseAI)),
+    ).resolves.toEqual(LIGHT_BEAN);
   });
 
-  it("throws UpstreamMalformedError when response has trailing prose after JSON", async () => {
+  it("accepts one validated JSON object with trailing prose", async () => {
     const trailingAI = makeMockAI(`${JSON.stringify(LIGHT_BEAN)} Hope that helps!`);
     await expect(
-      extractBeanMetadata(JPEG_BYTES, "image/jpeg", makeEnv(trailingAI)),
-    ).rejects.toMatchObject({ code: "UPSTREAM_MALFORMED" });
+      extractBeanMetadata(singleImageData(JPEG_BUF, "image/jpeg"), makeEnv(trailingAI)),
+    ).resolves.toEqual(LIGHT_BEAN);
   });
 
   it("throws UpstreamMalformedError when response contains multiple JSON objects", async () => {
     const multiAI = makeMockAI(JSON.stringify(LIGHT_BEAN) + JSON.stringify(LIGHT_BEAN));
     await expect(
-      extractBeanMetadata(JPEG_BYTES, "image/jpeg", makeEnv(multiAI)),
+      extractBeanMetadata(singleImageData(JPEG_BUF, "image/jpeg"), makeEnv(multiAI)),
     ).rejects.toMatchObject({ code: "UPSTREAM_MALFORMED" });
   });
 
   it("throws UpstreamMalformedError when response is malformed JSON", async () => {
     const badJsonAI = makeMockAI("{not-valid-json{{");
     await expect(
-      extractBeanMetadata(JPEG_BYTES, "image/jpeg", makeEnv(badJsonAI)),
+      extractBeanMetadata(singleImageData(JPEG_BUF, "image/jpeg"), makeEnv(badJsonAI)),
     ).rejects.toMatchObject({ code: "UPSTREAM_MALFORMED" });
   });
 
   it("throws UpstreamMalformedError when response is empty", async () => {
     const emptyAI = makeMockAI("");
     await expect(
-      extractBeanMetadata(JPEG_BYTES, "image/jpeg", makeEnv(emptyAI)),
+      extractBeanMetadata(singleImageData(JPEG_BUF, "image/jpeg"), makeEnv(emptyAI)),
     ).rejects.toMatchObject({ code: "UPSTREAM_MALFORMED" });
   });
 
   it("throws UpstreamMalformedError when response shape has no response field", async () => {
     await expect(
-      extractBeanMetadata(JPEG_BYTES, "image/jpeg", makeEnv(makeMockAIBadShape())),
+      extractBeanMetadata(singleImageData(JPEG_BUF, "image/jpeg"), makeEnv(makeMockAIBadShape())),
     ).rejects.toMatchObject({ code: "UPSTREAM_MALFORMED" });
   });
 
   it("throws UpstreamMalformedError when response JSON fails bean validation (wrong roastLevel)", async () => {
     const badBeanAI = makeMockAI(JSON.stringify({ ...LIGHT_BEAN, roastLevel: "burnt" }));
     await expect(
-      extractBeanMetadata(JPEG_BYTES, "image/jpeg", makeEnv(badBeanAI)),
+      extractBeanMetadata(singleImageData(JPEG_BUF, "image/jpeg"), makeEnv(badBeanAI)),
     ).rejects.toMatchObject({ code: "UPSTREAM_MALFORMED" });
   });
 
   it("throws InternalError when AI binding is absent", async () => {
     const envNoAI = { ALLOWED_ORIGINS: MOCK_ENV.ALLOWED_ORIGINS } as unknown as Env;
-    await expect(extractBeanMetadata(JPEG_BYTES, "image/jpeg", envNoAI)).rejects.toMatchObject({
+    await expect(
+      extractBeanMetadata(singleImageData(JPEG_BUF, "image/jpeg"), envNoAI),
+    ).rejects.toMatchObject({
       code: "INTERNAL_ERROR",
     });
   });
@@ -150,7 +163,7 @@ describe("extractBeanMetadata", () => {
   it("throws UpstreamError when binding rejects (quota/license/model error)", async () => {
     const rejectingAI = makeMockAIReject(new Error("Workers AI: quota exceeded"));
     await expect(
-      extractBeanMetadata(JPEG_BYTES, "image/jpeg", makeEnv(rejectingAI)),
+      extractBeanMetadata(singleImageData(JPEG_BUF, "image/jpeg"), makeEnv(rejectingAI)),
     ).rejects.toMatchObject({ code: "UPSTREAM_ERROR" });
   });
 
@@ -159,7 +172,7 @@ describe("extractBeanMetadata", () => {
     const rejectingAI = makeMockAIReject(new Error(SENTINEL));
     let thrownMessage = "";
     try {
-      await extractBeanMetadata(JPEG_BYTES, "image/jpeg", makeEnv(rejectingAI));
+      await extractBeanMetadata(singleImageData(JPEG_BUF, "image/jpeg"), makeEnv(rejectingAI));
     } catch (err) {
       thrownMessage = err instanceof Error ? err.message : String(err);
     }
@@ -190,6 +203,12 @@ describe("validateBeanMetadata — strict bounds", () => {
     );
   });
 
+  it("throws when beanName exceeds 100 characters", () => {
+    expect(() => validateBeanMetadata({ ...LIGHT_BEAN, beanName: "x".repeat(101) })).toThrow(
+      /beanName/,
+    );
+  });
+
   it("throws when flavors array exceeds max count", () => {
     expect(() => validateBeanMetadata({ ...LIGHT_BEAN, flavors: Array(21).fill("note") })).toThrow(
       /flavors/,
@@ -216,30 +235,23 @@ describe("validateBeanMetadata — strict bounds", () => {
 });
 
 // ---------------------------------------------------------------------------
-// extractBeanMetadata — regression tests for Workers AI response shapes
+// extractBeanMetadata — Workers AI response shape regressions
 // ---------------------------------------------------------------------------
 
 describe("extractBeanMetadata — Workers AI response shape regressions", () => {
-  const JPEG_BUF = makeJpegBytes().buffer as ArrayBuffer;
-  const PNG_BUF = makePngBytes().buffer as ArrayBuffer;
-  const WEBP_BUF = makeWebpBytes().buffer as ArrayBuffer;
-
-  function makeEnv(ai: {
-    run: (model: string, inputs: unknown) => Promise<{ response?: unknown }>;
-  }) {
-    return { ...MOCK_ENV, AI: ai } as unknown as Env;
-  }
+  const JPEG = makeJpegBytes().buffer as ArrayBuffer;
+  const PNG = makePngBytes().buffer as ArrayBuffer;
+  const WEBP = makeWebpBytes().buffer as ArrayBuffer;
 
   it("throws UpstreamMalformedError when response field is null (runtime type mismatch)", async () => {
     await expect(
-      extractBeanMetadata(JPEG_BUF, "image/jpeg", makeEnv(makeMockAINullResponse())),
+      extractBeanMetadata(singleImageData(JPEG, "image/jpeg"), makeEnv(makeMockAINullResponse())),
     ).rejects.toMatchObject({ code: "UPSTREAM_MALFORMED" });
   });
 
   it("accepts a valid pre-parsed object response", async () => {
     const result = await extractBeanMetadata(
-      JPEG_BUF,
-      "image/jpeg",
+      singleImageData(JPEG, "image/jpeg"),
       makeEnv(makeMockAIResponse(LIGHT_BEAN)),
     );
     expect(result).toEqual(LIGHT_BEAN);
@@ -250,8 +262,7 @@ describe("extractBeanMetadata — Workers AI response shape regressions", () => 
     expect(sourceDescription.length).toBeGreaterThan(471);
 
     const result = await extractBeanMetadata(
-      JPEG_BUF,
-      "image/jpeg",
+      singleImageData(JPEG, "image/jpeg"),
       makeEnv(makeMockAIResponse({ ...LIGHT_BEAN, description: sourceDescription })),
     );
 
@@ -262,15 +273,17 @@ describe("extractBeanMetadata — Workers AI response shape regressions", () => 
 
   it("rejects an array response", async () => {
     await expect(
-      extractBeanMetadata(JPEG_BUF, "image/jpeg", makeEnv(makeMockAIResponse([LIGHT_BEAN]))),
+      extractBeanMetadata(
+        singleImageData(JPEG, "image/jpeg"),
+        makeEnv(makeMockAIResponse([LIGHT_BEAN])),
+      ),
     ).rejects.toMatchObject({ code: "UPSTREAM_MALFORMED" });
   });
 
   it("rejects an object response containing an unknown field", async () => {
     await expect(
       extractBeanMetadata(
-        JPEG_BUF,
-        "image/jpeg",
+        singleImageData(JPEG, "image/jpeg"),
         makeEnv(makeMockAIResponse({ ...LIGHT_BEAN, unexpected: "value" })),
       ),
     ).rejects.toMatchObject({ code: "UPSTREAM_MALFORMED" });
@@ -278,16 +291,14 @@ describe("extractBeanMetadata — Workers AI response shape regressions", () => 
 
   it("image is embedded in user message content as image_url — no top-level image field", async () => {
     const { ai, lastInputs } = makeMockAICapturing(LIGHT_BEAN);
-    await extractBeanMetadata(JPEG_BUF, "image/jpeg", makeEnv(ai));
+    await extractBeanMetadata(singleImageData(JPEG, "image/jpeg"), makeEnv(ai));
 
     const inputs = lastInputs() as {
       messages: Array<{ role: string; content: unknown }>;
       image?: unknown;
     };
-    // Must NOT send image as a top-level field
     expect(inputs.image).toBeUndefined();
 
-    // User message content must be an array with an image_url entry
     const userContent = inputs.messages[1]?.content;
     expect(Array.isArray(userContent)).toBe(true);
     const parts = userContent as Array<{ type?: string; image_url?: { url?: string } }>;
@@ -295,40 +306,31 @@ describe("extractBeanMetadata — Workers AI response shape regressions", () => 
     expect(imgPart?.image_url?.url).toMatch(/^data:image\/jpeg;base64,/);
   });
 
-  it("data URL mime type matches the detected image type — JPEG", async () => {
+  it("data URL mime type matches — JPEG", async () => {
     const { ai, lastInputs } = makeMockAICapturing(LIGHT_BEAN);
-    await extractBeanMetadata(JPEG_BUF, "image/jpeg", makeEnv(ai));
+    await extractBeanMetadata(singleImageData(JPEG, "image/jpeg"), makeEnv(ai));
     const parts = (lastInputs() as { messages: Array<{ content: unknown }> }).messages[1]
-      ?.content as Array<{
-      type: string;
-      image_url?: { url: string };
-    }>;
+      ?.content as Array<{ type: string; image_url?: { url: string } }>;
     expect(parts.find((p) => p.type === "image_url")?.image_url?.url).toMatch(
       /^data:image\/jpeg;base64,/,
     );
   });
 
-  it("data URL mime type matches the detected image type — PNG", async () => {
+  it("data URL mime type matches — PNG", async () => {
     const { ai, lastInputs } = makeMockAICapturing(LIGHT_BEAN);
-    await extractBeanMetadata(PNG_BUF, "image/png", makeEnv(ai));
+    await extractBeanMetadata(singleImageData(PNG, "image/png"), makeEnv(ai));
     const parts = (lastInputs() as { messages: Array<{ content: unknown }> }).messages[1]
-      ?.content as Array<{
-      type: string;
-      image_url?: { url: string };
-    }>;
+      ?.content as Array<{ type: string; image_url?: { url: string } }>;
     expect(parts.find((p) => p.type === "image_url")?.image_url?.url).toMatch(
       /^data:image\/png;base64,/,
     );
   });
 
-  it("data URL mime type matches the detected image type — WebP", async () => {
+  it("data URL mime type matches — WebP", async () => {
     const { ai, lastInputs } = makeMockAICapturing(LIGHT_BEAN);
-    await extractBeanMetadata(WEBP_BUF, "image/webp", makeEnv(ai));
+    await extractBeanMetadata(singleImageData(WEBP, "image/webp"), makeEnv(ai));
     const parts = (lastInputs() as { messages: Array<{ content: unknown }> }).messages[1]
-      ?.content as Array<{
-      type: string;
-      image_url?: { url: string };
-    }>;
+      ?.content as Array<{ type: string; image_url?: { url: string } }>;
     expect(parts.find((p) => p.type === "image_url")?.image_url?.url).toMatch(
       /^data:image\/webp;base64,/,
     );
@@ -336,7 +338,7 @@ describe("extractBeanMetadata — Workers AI response shape regressions", () => 
 
   it("system message is a plain string (not an array)", async () => {
     const { ai, lastInputs } = makeMockAICapturing(LIGHT_BEAN);
-    await extractBeanMetadata(JPEG_BUF, "image/jpeg", makeEnv(ai));
+    await extractBeanMetadata(singleImageData(JPEG, "image/jpeg"), makeEnv(ai));
     const messages = (lastInputs() as { messages: Array<{ role: string; content: unknown }> })
       .messages;
     expect(messages[0]?.role).toBe("system");
@@ -345,12 +347,46 @@ describe("extractBeanMetadata — Workers AI response shape regressions", () => 
 
   it("succeeds for all three supported image types end-to-end", async () => {
     for (const [bytes, mime] of [
-      [JPEG_BUF, "image/jpeg"],
-      [PNG_BUF, "image/png"],
-      [WEBP_BUF, "image/webp"],
+      [JPEG, "image/jpeg"],
+      [PNG, "image/png"],
+      [WEBP, "image/webp"],
     ] as const) {
-      const result = await extractBeanMetadata(bytes, mime, makeEnv(makeMockAIBean(LIGHT_BEAN)));
+      const result = await extractBeanMetadata(
+        singleImageData(bytes, mime),
+        makeEnv(makeMockAIBean(LIGHT_BEAN)),
+      );
       expect(result).toEqual(LIGHT_BEAN);
     }
+  });
+
+  it("analyses multiple images in separate single-image calls and merges their fields", async () => {
+    const inputs: unknown[] = [];
+    const responses = [
+      { ...LIGHT_BEAN, variety: "", flavors: ["Blueberry"] },
+      { ...LIGHT_BEAN, beanName: "", variety: "Gesha", flavors: ["blueberry", "Jasmine"] },
+    ];
+    let callIndex = 0;
+    const ai = {
+      run: (_model: string, input: unknown) => {
+        inputs.push(input);
+        const response = responses[callIndex++];
+        return Promise.resolve({ response: JSON.stringify(response) });
+      },
+    };
+    const images = [
+      { bytes: JPEG, mimeType: "image/jpeg" as const },
+      { bytes: PNG, mimeType: "image/png" as const },
+    ];
+    const result = await extractBeanMetadata(images, makeEnv(ai));
+
+    expect(inputs).toHaveLength(2);
+    for (const input of inputs) {
+      const parts = (input as { messages: Array<{ content: unknown }> }).messages[1]
+        ?.content as Array<{ type: string; image_url?: unknown }>;
+      expect(parts.filter((p) => p.type === "image_url")).toHaveLength(1);
+    }
+    expect(result.beanName).toBe(LIGHT_BEAN.beanName);
+    expect(result.variety).toBe("Gesha");
+    expect(result.flavors).toEqual(["Blueberry", "Jasmine"]);
   });
 });

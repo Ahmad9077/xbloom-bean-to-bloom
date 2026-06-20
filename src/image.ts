@@ -1,9 +1,17 @@
 import { ClientError, PayloadTooLargeError, UnsupportedMediaError } from "./errors.js";
 
-/** Maximum image size accepted by this Worker (not an xBloom limit). */
+/** Maximum size for a single image (Worker limit). */
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
+/** Maximum combined size across all images in one request. */
+export const MAX_COMBINED_BYTES = 20 * 1024 * 1024; // 20 MB
+export const MAX_IMAGE_COUNT = 4;
 
 export type DetectedMimeType = "image/jpeg" | "image/png" | "image/webp";
+
+export interface ImageData {
+  bytes: ArrayBuffer;
+  mimeType: DetectedMimeType;
+}
 
 /**
  * Detect image format from the first bytes of the buffer.
@@ -51,8 +59,7 @@ export function detectImageType(buffer: ArrayBuffer): DetectedMimeType | null {
 
 /**
  * Extract and validate the image field from an already-parsed FormData object.
- * Use this when the caller has already called request.formData() to avoid
- * consuming the body twice.
+ * Accepts the "image" field (legacy single-image form).
  */
 export async function extractImageFromFormData(
   formData: FormData,
@@ -71,9 +78,7 @@ export async function extractImageFromFormData(
     throw new ClientError("Uploaded image is empty");
   }
   if (bytes.byteLength > MAX_IMAGE_BYTES) {
-    throw new PayloadTooLargeError(
-      `Image exceeds the ${MAX_IMAGE_BYTES / 1024 / 1024} MB Worker limit`,
-    );
+    throw new PayloadTooLargeError(`Image exceeds the ${MAX_IMAGE_BYTES / 1024 / 1024} MB limit`);
   }
 
   const mimeType = detectImageType(bytes);
@@ -87,8 +92,71 @@ export async function extractImageFromFormData(
 }
 
 /**
+ * Extract 1–4 images from a multipart request.
+ * Accepts "images" (multi-file) or legacy "image" (single file).
+ * Validates magic bytes, per-file size, and combined size.
+ * Images are kept in memory only — never written to storage or logs.
+ */
+export async function extractImagesFromFormData(formData: FormData): Promise<ImageData[]> {
+  // Collect files from "images" (multi) and legacy "image" (single)
+  const files: File[] = [];
+  const imagesField = formData.getAll("images") as unknown[];
+  for (const f of imagesField) {
+    if (!(f instanceof File)) {
+      throw new ClientError('Every "images" field must be a file');
+    }
+    files.push(f);
+  }
+  if (files.length === 0) {
+    const single = formData.get("image") as unknown;
+    if (single instanceof File) files.push(single);
+  }
+
+  if (files.length === 0) {
+    throw new ClientError('Missing required form field "images" (or legacy "image")');
+  }
+  if (files.length > MAX_IMAGE_COUNT) {
+    throw new ClientError(`Too many images: maximum ${MAX_IMAGE_COUNT} allowed`);
+  }
+
+  const results: ImageData[] = [];
+  let combinedBytes = 0;
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i] as File;
+    const bytes = await file.arrayBuffer();
+
+    if (bytes.byteLength === 0) {
+      throw new ClientError(`Image ${i + 1} is empty`);
+    }
+    if (bytes.byteLength > MAX_IMAGE_BYTES) {
+      throw new PayloadTooLargeError(
+        `Image ${i + 1} exceeds the ${MAX_IMAGE_BYTES / 1024 / 1024} MB per-file limit`,
+      );
+    }
+
+    combinedBytes += bytes.byteLength;
+    if (combinedBytes > MAX_COMBINED_BYTES) {
+      throw new PayloadTooLargeError(
+        `Combined image size exceeds the ${MAX_COMBINED_BYTES / 1024 / 1024} MB limit`,
+      );
+    }
+
+    const mimeType = detectImageType(bytes);
+    if (mimeType === null) {
+      throw new UnsupportedMediaError(
+        `Image ${i + 1}: format not recognised. Supported: JPEG, PNG, WebP`,
+      );
+    }
+
+    results.push({ bytes, mimeType });
+  }
+
+  return results;
+}
+
+/**
  * Extract and validate the uploaded image from a multipart/form-data request.
- * Throws typed errors on any failure; never throws generic Error directly.
  */
 export async function extractImage(
   request: Request,

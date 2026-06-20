@@ -1,19 +1,25 @@
 {
   "name": "xbloom-recipe-worker",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Cloudflare Worker: coffee-bean vision extraction → deterministic xBloom Studio recipe",
+  "description": "Cloudflare Worker: authenticated recipe generation, D1 storage, bridge queue",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "npm run build:web && wrangler deploy",
+    "migrate:remote": "wrangler d1 migrations apply xbloom-db --remote",
+    "migrate:local": "wrangler d1 migrations apply xbloom-db --local",
+    "build:web": "npm --prefix web run build",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src test",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run lint && npm run test"
+    "check": "npm run typecheck && npm run lint && npm run test",
+    "audit:high": "npm audit --audit-level=high"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@cloudflare/workers-types": "^4.20250620.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.11.1",
     "typescript": "^5.5.4",
     "vitest": "^4.1.9",
     "wrangler": "^4.102.0"

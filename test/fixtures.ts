@@ -44,9 +44,11 @@ export function makeWebpBytes(extraBytes = 64): Uint8Array {
   return buf;
 }
 
+import type { ImageData } from "../src/image.js";
 import type { BeanMetadata } from "../src/types.js";
 
 export const LIGHT_BEAN: BeanMetadata = {
+  beanName: "Yirgacheffe",
   coffeeType: "Single Origin",
   variety: "Heirloom",
   origin: "Ethiopia",
@@ -57,6 +59,7 @@ export const LIGHT_BEAN: BeanMetadata = {
 };
 
 export const MEDIUM_BEAN: BeanMetadata = {
+  beanName: "Guatemala Honey",
   coffeeType: "Blend",
   variety: "Typica",
   origin: "Guatemala",
@@ -67,6 +70,7 @@ export const MEDIUM_BEAN: BeanMetadata = {
 };
 
 export const DARK_BEAN: BeanMetadata = {
+  beanName: "Brazil Natural",
   coffeeType: "Espresso",
   variety: "Robusta",
   origin: "Brazil",
@@ -164,6 +168,14 @@ export function makeMockAICapturing(bean: BeanMetadata): {
   };
 }
 
+/** Wrap a single raw image buffer as an ImageData array for extractBeanMetadata. */
+export function singleImageData(
+  bytes: ArrayBuffer,
+  mimeType: "image/jpeg" | "image/png" | "image/webp",
+): ImageData[] {
+  return [{ bytes, mimeType }];
+}
+
 export const MOCK_ENV = {
   AI: makeMockAIBean(LIGHT_BEAN),
   ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:8787",
@@ -188,6 +200,26 @@ export function makeFormDataRequest(
     }
   }
   return new Request("http://localhost/v1/recipes/from-image", {
+    method: "POST",
+    body: fd,
+    headers: { Origin: origin },
+  });
+}
+
+/** Build a multipart request with one or more images for /api/recipes/from-images. */
+export function makeMultiImageRequest(
+  images: Array<{ bytes: Uint8Array; filename: string; mimeType: string }>,
+  origin = "http://localhost",
+  brewMode?: "cold" | "hot",
+  extra?: Record<string, string>,
+): Request {
+  const fd = new FormData();
+  for (const img of images) {
+    fd.append("images", new File([img.bytes], img.filename, { type: img.mimeType }));
+  }
+  if (brewMode !== undefined) fd.append("brewMode", brewMode);
+  if (extra) for (const [k, v] of Object.entries(extra)) fd.append(k, v);
+  return new Request("http://localhost/api/recipes/from-images", {
     method: "POST",
     body: fd,
     headers: { Origin: origin },

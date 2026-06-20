@@ -1,11 +1,22 @@
 /**
- * Attach baseline security headers to an existing Headers object.
- * Call this on every response before returning.
+ * Attach security headers to a Headers object.
+ * SPA routes and API routes use different CSP values.
  */
-export function applySecurityHeaders(headers: Headers): void {
+
+const API_CSP = "default-src 'none'";
+const SPA_CSP =
+  "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'";
+
+export function applySecurityHeaders(headers: Headers, isSpa = false): void {
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
   headers.set("Referrer-Policy", "no-referrer");
-  // API returns only JSON — no scripts, styles, or external resources needed
-  headers.set("Content-Security-Policy", "default-src 'none'");
+  headers.set("Content-Security-Policy", isSpa ? SPA_CSP : API_CSP);
+  headers.set("X-XSS-Protection", "0");
+  headers.set(
+    "Permissions-Policy",
+    isSpa
+      ? "camera=(self), microphone=(), geolocation=(), payment=(), usb=()"
+      : "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+  );
 }

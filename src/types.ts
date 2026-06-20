@@ -3,12 +3,13 @@
 // ---------------------------------------------------------------------------
 
 export interface Env {
-  /** Cloudflare Workers AI binding — declared in wrangler.toml [ai] binding = "AI" */
   readonly AI: Ai;
-  /** Comma-separated list of allowed CORS origins; empty = deny all cross-origin */
+  readonly DB: D1Database;
+  readonly ASSETS?: Fetcher;
   readonly ALLOWED_ORIGINS?: string;
-  /** Cloudflare Turnstile secret key; absent = Turnstile disabled */
   readonly TURNSTILE_SECRET_KEY?: string;
+  /** SHA-256 hex digest of the bearer token used by the Mac bridge service. */
+  readonly BRIDGE_TOKEN_HASH?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -18,6 +19,8 @@ export interface Env {
 export type RoastLevel = "light" | "medium" | "dark";
 
 export interface BeanMetadata {
+  /** Most prominent product/bean coffee name from the bag. "Unknown Bean" when unreliable. */
+  beanName: string;
   coffeeType: string;
   variety: string;
   origin: string;
@@ -54,15 +57,10 @@ export interface Bypass {
   tempC: number;
 }
 
-/** Iced serving metadata for cold brew-mode recipes.
- *  The xBloom machine itself has no cold setting — it brews hot water.
- *  Ice is added outside the machine after brewing. */
+/** Iced serving metadata for cold brew-mode recipes. */
 export interface IcedServingInstruction {
-  /** Grams of ice to add outside the machine after brewing. */
   iceG: number;
-  /** Total beverage volume including ice melt: machine water + ice. */
   totalBeverageMl: number;
-  /** Human-readable serving instruction. */
   instruction: string;
 }
 
@@ -70,7 +68,6 @@ export interface Recipe {
   name: string;
   machine: "xBloom Studio";
   dripper: Dripper;
-  /** Brew mode selected by the user before analysis. */
   brewMode: BrewMode;
   brewRatio: string;
   totalVolumeMl: number;
@@ -80,12 +77,28 @@ export interface Recipe {
   pours: Pour[];
   bypass?: Bypass;
   bean: BeanMetadata;
-  /** Present only when brewMode is "cold". */
   icedServing?: IcedServingInstruction;
 }
 
 // ---------------------------------------------------------------------------
-// JSON response envelope
+// Auth context (available in route handlers after session validation)
+// ---------------------------------------------------------------------------
+
+export interface AuthContext {
+  userId: string;
+  username: string;
+  role: "admin" | "user";
+  authVersion: number;
+}
+
+// ---------------------------------------------------------------------------
+// Bridge job
+// ---------------------------------------------------------------------------
+
+export type BridgeJobStatus = "pending" | "claimed" | "completed" | "failed";
+
+// ---------------------------------------------------------------------------
+// JSON response envelopes
 // ---------------------------------------------------------------------------
 
 export interface SuccessEnvelope {
