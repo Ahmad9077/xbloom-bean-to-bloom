@@ -57,8 +57,8 @@ const RECIPE_SCHEMA = {
           additionalProperties: false,
           required: ["iceG", "totalBeverageMl", "instruction"],
           properties: {
-            iceG: { type: "integer", minimum: 100, maximum: 160 },
-            totalBeverageMl: { type: "integer", minimum: 280, maximum: 320 },
+            iceG: { type: "integer", minimum: 100, maximum: 120 },
+            totalBeverageMl: { type: "integer", minimum: 270, maximum: 300 },
             instruction: { type: "string", minLength: 1, maxLength: 500 },
           },
         },
@@ -169,7 +169,7 @@ Verified xBloom Studio Omni limits:
 - pour labels exactly Bloom, Pour 2, Pour 3, Pour 4 in order; volumes sum exactly to totalVolumeMl.
 - temperatures 40..95 C, normally 85..95 C for coffee; flow 3.0..3.5 ml/s in 0.1 steps; pause 2..59 seconds.
 - no bypass. The machine always brews hot water.
-- cold mode: target exactly 300 ml total beverage whenever valid, and always stay within 280..320 ml. Use 140..200 ml machine water and 100..160 g ice; prefer more ice over more machine water. icedServing must be present, totalBeverageMl must equal machine water plus ice, the overall beverage ratio must be 1:12..1:20, and the instruction must clearly say to put the measured ice in the serving glass/carafe before brewing.
+- cold mode: target exactly 300 ml total beverage whenever valid, and always stay within 270..300 ml. Use 150..200 ml machine water and 100..120 g ice; never exceed 120 g ice. icedServing must be present, totalBeverageMl must equal machine water plus ice, the overall beverage ratio must be 1:12..1:20, and the instruction must clearly say to put the measured ice in the serving glass/carafe before brewing.
 - hot mode: icedServing must be null.
 
 Return only the required structured result.`;

@@ -101,8 +101,8 @@ describe("recommendRecipe", () => {
     const body = JSON.parse(String(init.body));
     const prompt = body.input[0].content[0].text as string;
     expect(prompt).toContain("target exactly 300 ml");
-    expect(prompt).toContain("100..160 g ice");
-    expect(prompt).toContain("140..200 ml machine water");
+    expect(prompt).toContain("100..120 g ice");
+    expect(prompt).toContain("150..200 ml machine water");
   });
 
   it("maps spending and rate limits without exposing provider details", async () => {
