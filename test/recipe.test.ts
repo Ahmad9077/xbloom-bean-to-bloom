@@ -129,12 +129,12 @@ describe("generateRecipe — app limit bounds", () => {
     }
   });
 
-  it("pauseSec is in range 0..59 and is an integer", () => {
+  it("pauseSec is in the xBloom app range 2..59 and is an integer", () => {
     for (const b of allBeans) {
       const r = generateRecipe(b);
       for (const p of r.pours) {
         expect(Number.isInteger(p.pauseSec)).toBe(true);
-        expect(p.pauseSec).toBeGreaterThanOrEqual(0);
+        expect(p.pauseSec).toBeGreaterThanOrEqual(2);
         expect(p.pauseSec).toBeLessThanOrEqual(59);
       }
     }

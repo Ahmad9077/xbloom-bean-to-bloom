@@ -42,7 +42,7 @@ const RECIPE_SCHEMA = {
           volumeMl: { type: "integer", minimum: 1, maximum: 240 },
           tempC: { type: "integer", minimum: 40, maximum: 95 },
           flowRateMlPerSec: { type: "number", enum: [3, 3.1, 3.2, 3.3, 3.4, 3.5] },
-          pauseSec: { type: "integer", minimum: 0, maximum: 59 },
+          pauseSec: { type: "integer", minimum: 2, maximum: 59 },
           pattern: { type: "string", enum: ["centered", "spiral", "circular"] },
           agitationBefore: { type: "boolean" },
           agitationAfter: { type: "boolean" },
@@ -167,7 +167,7 @@ Verified xBloom Studio Omni limits:
 - doseG integer 5..18; ratio 1:5..1:25; totalVolumeMl exactly dose times ratio denominator.
 - grind 1..80; RPM 60..120 in steps of 10; 2..4 pours.
 - pour labels exactly Bloom, Pour 2, Pour 3, Pour 4 in order; volumes sum exactly to totalVolumeMl.
-- temperatures 40..95 C, normally 85..95 C for coffee; flow 3.0..3.5 ml/s in 0.1 steps; pause 0..59 seconds.
+- temperatures 40..95 C, normally 85..95 C for coffee; flow 3.0..3.5 ml/s in 0.1 steps; pause 2..59 seconds.
 - no bypass. The machine always brews hot water.
 - cold mode: icedServing must be present, use 40..160 g ice, totalBeverageMl equals machine water plus ice, overall beverage ratio 1:12..1:20, and clearly instruct that measured ice goes in the serving glass/carafe before brewing.
 - hot mode: icedServing must be null.

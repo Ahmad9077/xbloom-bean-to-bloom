@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import CloudBridge from "../components/CloudBridge.js";
 
@@ -105,7 +105,7 @@ describe("CloudBridge — completed state", () => {
     await waitFor(() => {
       expect(screen.getByRole("status")).toHaveTextContent(/sent to xbloom studio/i);
     });
-    expect(screen.getByRole("link", { name: /open in xbloom app/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /add recipe in xbloom app/i })).toHaveAttribute(
       "href",
       "https://share-h5.xbloom.com/?id=test",
     );
@@ -137,6 +137,37 @@ describe("CloudBridge — failed state", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(/bridge delivery failed/i);
     });
     expect(screen.getByText(/bridge timed out/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /retry and create xbloom link/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("requeues a failed delivery and shows the official share-link button", async () => {
+    mockCreate
+      .mockResolvedValueOnce({
+        id: "j1",
+        recipeId: "r1",
+        status: "failed",
+        safeError: "Slider failed.",
+        createdAt: 0,
+        updatedAt: 0,
+      })
+      .mockResolvedValueOnce({
+        id: "j1",
+        recipeId: "r1",
+        status: "completed",
+        shareLink: "https://share-h5.xbloom.com/?id=retried",
+        createdAt: 0,
+        updatedAt: 1,
+      });
+
+    render(<CloudBridge recipeId="r1" />);
+    const retry = await screen.findByRole("button", { name: /retry and create xbloom link/i });
+    fireEvent.click(retry);
+
+    const addLink = await screen.findByRole("link", { name: /add recipe in xbloom app/i });
+    expect(addLink).toHaveAttribute("href", "https://share-h5.xbloom.com/?id=retried");
+    expect(mockCreate).toHaveBeenCalledTimes(2);
   });
 });
 

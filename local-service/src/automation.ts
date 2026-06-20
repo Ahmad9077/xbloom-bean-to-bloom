@@ -14,6 +14,7 @@ import {
 import type { Bypass, Pour, Recipe } from "./types.js";
 
 const PKG = "com.xbloom.tbdx";
+const APP_PAUSE_MIN_SEC = 2;
 
 // Global selector (recipe-level controls that appear exactly once)
 const sel = (resourceId: string) =>
@@ -159,8 +160,8 @@ async function setPourValues(
     driver,
     pourSel(label, "pausingSb"),
     pourSel(label, "pausingTv"),
-    pour.pauseSec,
-    0,
+    normalizePauseSecForApp(pour.pauseSec),
+    APP_PAUSE_MIN_SEC,
     59,
     Number.parseInt,
     maxRetries,
@@ -188,6 +189,12 @@ async function setPourValues(
   );
 
   log.info("Pour values set", { jobId, stage: `${st}_done` });
+}
+
+/** xBloom Studio 2.2.2 cannot position its pause slider below 2 seconds.
+ * Preserve delivery of older saved recipes that allowed 0 or 1 second. */
+export function normalizePauseSecForApp(pauseSec: number): number {
+  return Math.max(APP_PAUSE_MIN_SEC, pauseSec);
 }
 
 async function selectPattern(

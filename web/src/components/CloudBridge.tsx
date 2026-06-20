@@ -19,12 +19,14 @@ interface Props {
 
 export default function CloudBridge({ recipeId }: Props) {
   const [state, setState] = useState<CloudBridgeState>({ kind: "enqueuing" });
+  const [retryNonce, setRetryNonce] = useState(0);
   const pollsRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
     mountedRef.current = true;
+    if (retryNonce > 0) pollsRef.current = 0;
 
     async function startPolling() {
       // Create or retrieve the bridge job (idempotent)
@@ -75,7 +77,12 @@ export default function CloudBridge({ recipeId }: Props) {
       mountedRef.current = false;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [recipeId]);
+  }, [recipeId, retryNonce]);
+
+  function retryDelivery() {
+    setState({ kind: "enqueuing" });
+    setRetryNonce((value) => value + 1);
+  }
 
   function applyJob(job: BridgeJob): boolean {
     switch (job.status) {
@@ -151,7 +158,7 @@ export default function CloudBridge({ recipeId }: Props) {
             href={state.shareLink}
             className="mt-4 flex min-h-touch items-center justify-center rounded-card bg-espresso px-4 py-3 text-sm font-semibold text-ivory"
           >
-            Open in xBloom app to add recipe
+            Add recipe in xBloom app
           </a>
         )}
       </output>
@@ -164,8 +171,16 @@ export default function CloudBridge({ recipeId }: Props) {
         <p className="text-sm font-semibold text-red-800">Bridge delivery failed</p>
         {state.error && <p className="text-xs text-red-700">{state.error}</p>}
         <p className="text-xs text-red-600/70 mt-1">
-          Please ensure your Mac bridge app is running and connected, then try refreshing the page.
+          Check that the Mac bridge is running, then retry. After delivery, you will receive a
+          button that opens the official xBloom share link.
         </p>
+        <button
+          type="button"
+          onClick={retryDelivery}
+          className="mt-3 flex min-h-touch w-full items-center justify-center rounded-card bg-espresso px-4 py-3 text-sm font-semibold text-ivory"
+        >
+          Retry and create xBloom link
+        </button>
       </div>
     );
   }
