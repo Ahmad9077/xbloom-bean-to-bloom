@@ -18,6 +18,30 @@ RUNTIME_DIR="${XBLOOM_RUNTIME_DIR:-$HOME/.codex/xbloom-bridge}"
 mkdir -p "$RUNTIME_DIR"
 chmod 700 "$RUNTIME_DIR"
 
+ensure_appium_uiautomator2_driver() {
+  if ! command -v appium >/dev/null 2>&1; then
+    echo "Appium CLI is not installed or not in PATH" >&2
+    exit 1
+  fi
+
+  if appium driver list --installed 2>/dev/null | grep -q "uiautomator2@"; then
+    return
+  fi
+
+  echo "Appium UiAutomator2 driver missing; installing official driver..." >&2
+  if ! appium driver install uiautomator2 >>"$RUNTIME_DIR/appium.log" 2>&1; then
+    echo "Failed to install Appium UiAutomator2 driver" >&2
+    exit 1
+  fi
+
+  if ! appium driver list --installed 2>/dev/null | grep -q "uiautomator2@"; then
+    echo "Appium UiAutomator2 driver still unavailable after install" >&2
+    exit 1
+  fi
+}
+
+ensure_appium_uiautomator2_driver
+
 emulator_pid=""
 appium_pid=""
 service_pid=""
