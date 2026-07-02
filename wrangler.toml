@@ -1,57 +1,40 @@
 name = "xbloom-recipe-worker"
 account_id = "cb8327c64dd8aba791c042b403b7e766"
-main = "src/index.ts"
+main = "index.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = []
 
-# ---------------------------------------------------------------------------
-# Workers AI
-# ---------------------------------------------------------------------------
 [ai]
 binding = "AI"
 
-# ---------------------------------------------------------------------------
-# D1 database
-# IMPORTANT: Replace the database_id placeholder below with the real ID from:
-#   wrangler d1 create xbloom-db
-# Then run migrations:
-#   wrangler d1 migrations apply xbloom-db --remote
-# ---------------------------------------------------------------------------
 [[d1_databases]]
 binding = "DB"
 database_name = "xbloom-db"
 database_id = "9ba67ed8-f4fe-4960-94e4-d4a9584ddd1f"
-migrations_dir = "migrations"
 
-# ---------------------------------------------------------------------------
-# Static assets (SPA)
-# ---------------------------------------------------------------------------
 [assets]
-directory = "./web/dist"
+directory = "./assets-dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = true
 
-# ---------------------------------------------------------------------------
-# Environment variables
-# ---------------------------------------------------------------------------
 [vars]
-# Comma-separated allowed CORS origins (for cross-origin health checks etc.)
-ALLOWED_ORIGINS = "https://ahmad9077.github.io,http://localhost:3000,http://localhost:8787"
+ALLOWED_ORIGINS = "http://localhost:3000,http://localhost:8787"
 
-# Secrets — set via CLI, never in source:
-#   wrangler secret put OPENAI_API_KEY          (required for recipe generation)
-#   wrangler secret put TURNSTILE_SECRET_KEY   (optional; omit to disable Turnstile)
-#   wrangler secret put BRIDGE_TOKEN_HASH      (SHA-256 hex of bridge bearer token)
-
-# ---------------------------------------------------------------------------
-# Dev server
-# ---------------------------------------------------------------------------
-[dev]
-port = 8787
-
-# ---------------------------------------------------------------------------
-# Cron triggers — scheduled handler prunes expired sessions, attempts, old jobs
-# ---------------------------------------------------------------------------
 [triggers]
 crons = ["0 * * * *"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
