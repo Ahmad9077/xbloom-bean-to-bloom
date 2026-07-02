@@ -1,3 +1,8 @@
+import {
+  DEFAULT_RECIPE_PROFILE,
+  RULES_VERSION as RECIPE_RULES_VERSION,
+  recipeFingerprint
+} from "./src/fingerprint.js";
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
@@ -205,8 +210,9 @@ async function storeRecipe(db, data) {
   const now = Date.now();
   await db.prepare(
     `INSERT INTO recipes
-         (id, owner_id, full_name, store_name, bean_name, recipe_json, source, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, owner_id, full_name, store_name, bean_name, recipe_json, source,
+          profile, rules_version, fingerprint, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     data.id,
     data.ownerId,
@@ -215,6 +221,9 @@ async function storeRecipe(db, data) {
     data.beanName,
     data.recipeJson,
     data.source ?? "web",
+    data.profile ?? null,
+    data.rulesVersion ?? null,
+    data.fingerprint ?? null,
     now,
     now
   ).run();
@@ -225,8 +234,8 @@ async function storeRecipeAndCompleteConfirmation(db, data) {
     db.prepare(
       `INSERT INTO recipes
            (id, owner_id, full_name, store_name, bean_name, recipe_json,
-            source_confirmation_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            source_confirmation_id, profile, rules_version, fingerprint, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       data.id,
       data.ownerId,
@@ -235,6 +244,9 @@ async function storeRecipeAndCompleteConfirmation(db, data) {
       data.beanName,
       data.recipeJson,
       data.confirmationId,
+      data.profile ?? null,
+      data.rulesVersion ?? null,
+      data.fingerprint ?? null,
       now,
       now
     ),
@@ -255,6 +267,10 @@ async function findRecipeById(db, id) {
 async function findRecipeByConfirmation(db, confirmationId, ownerId) {
   return db.prepare("SELECT * FROM recipes WHERE source_confirmation_id = ? AND owner_id = ?").bind(confirmationId, ownerId).first();
 }
+async function findRecipeByFingerprint(db, ownerId, fingerprint) {
+  return db.prepare("SELECT * FROM recipes WHERE owner_id = ? AND fingerprint = ? LIMIT 1").bind(ownerId, fingerprint).first();
+}
+__name(findRecipeByFingerprint, "findRecipeByFingerprint");
 async function listRecipesByOwner(db, ownerId) {
   const result = await db.prepare("SELECT * FROM recipes WHERE owner_id = ? ORDER BY created_at DESC").bind(ownerId).all();
   return result.results;
@@ -3559,10 +3575,39 @@ async function handleFromConfirmation(request, env, requestId) {
   if (pending.status === "completed" && pending.result_recipe_id) {
     const existing = await findRecipeById(env.DB, pending.result_recipe_id);
     if (existing && existing.owner_id === ctx.userId) {
-      return recipeResponse(requestId, existing.id, JSON.parse(existing.recipe_json), 200);
+      const existingRecipe = JSON.parse(existing.recipe_json);
+      return recipeResponse(requestId, existing.id, existingRecipe, 200, {
+        cached: true,
+        profile: existing.profile ?? existingRecipe.profile ?? DEFAULT_RECIPE_PROFILE,
+        rulesVersion: existing.rules_version ?? existingRecipe.rulesVersion ?? RECIPE_RULES_VERSION
+      });
     }
   }
   validateRecipePreferencesForMode(preferences, pending.brew_mode);
+  const targets = resolveRecipeTargets(pending.brew_mode, preferences);
+  const chosenProfile = DEFAULT_RECIPE_PROFILE;
+  const rulesVersion = RECIPE_RULES_VERSION;
+  const fingerprint = await recipeFingerprint({
+    roastery: storeName,
+    beanName,
+    brewMode: pending.brew_mode,
+    finalDrinkMl: targets.finalDrinkMl,
+    profile: chosenProfile,
+    rulesVersion
+  });
+  const cached = await findRecipeByFingerprint(env.DB, ctx.userId, fingerprint);
+  if (cached) {
+    const cachedRecipe = JSON.parse(cached.recipe_json);
+    await completePendingRecipeConfirmation(env.DB, pending.id, ctx.userId, cached.id).catch(
+      () => {
+      }
+    );
+    return recipeResponse(requestId, cached.id, cachedRecipe, 200, {
+      cached: true,
+      profile: cached.profile ?? cachedRecipe.profile ?? chosenProfile,
+      rulesVersion: cached.rules_version ?? cachedRecipe.rulesVersion ?? rulesVersion
+    });
+  }
   const claimed = await claimPendingRecipeConfirmation(env.DB, pending.id, ctx.userId);
   if (!claimed) {
     throw new ConflictError("Recipe creation is already in progress. Please wait.");
@@ -3587,7 +3632,10 @@ async function handleFromConfirmation(request, env, requestId) {
       pending.brew_mode,
       preferences,
       pending.id,
-      { storeName: extracted.storeName, beanName: extracted.beanName }
+      { storeName: extracted.storeName, beanName: extracted.beanName },
+      "web",
+      false,
+      { profile: chosenProfile, rulesVersion, fingerprint }
     );
     return response;
   } catch (error) {
@@ -3599,7 +3647,27 @@ async function handleFromConfirmation(request, env, requestId) {
         () => {
         }
       );
-      return recipeResponse(requestId, existing.id, JSON.parse(existing.recipe_json), 200);
+      const existingRecipe = JSON.parse(existing.recipe_json);
+      return recipeResponse(requestId, existing.id, existingRecipe, 200, {
+        cached: true,
+        profile: existing.profile ?? existingRecipe.profile ?? chosenProfile,
+        rulesVersion: existing.rules_version ?? existingRecipe.rulesVersion ?? rulesVersion
+      });
+    }
+    const cachedAfterRace = await findRecipeByFingerprint(env.DB, ctx.userId, fingerprint).catch(
+      () => null
+    );
+    if (cachedAfterRace) {
+      const cachedRecipe = JSON.parse(cachedAfterRace.recipe_json);
+      await completePendingRecipeConfirmation(env.DB, pending.id, ctx.userId, cachedAfterRace.id).catch(
+        () => {
+        }
+      );
+      return recipeResponse(requestId, cachedAfterRace.id, cachedRecipe, 200, {
+        cached: true,
+        profile: cachedAfterRace.profile ?? cachedRecipe.profile ?? chosenProfile,
+        rulesVersion: cachedAfterRace.rules_version ?? cachedRecipe.rulesVersion ?? rulesVersion
+      });
     }
     await releasePendingRecipeConfirmation(env.DB, pending.id, ctx.userId).catch(() => {
     });
@@ -3949,7 +4017,7 @@ async function recipeOwnerUsesAdminTasteProfile(db, ownerId) {
   return row?.role === "admin";
 }
 __name(recipeOwnerUsesAdminTasteProfile, "recipeOwnerUsesAdminTasteProfile");
-async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitizedBean, brewMode, preferences, confirmationId, searchHints = {}, source = "web", createXBloomLinkJob = false) {
+async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitizedBean, brewMode, preferences, confirmationId, searchHints = {}, source = "web", createXBloomLinkJob = false, engineMeta = null) {
   const safeStoreName = sanitizedBean.storeName;
   const safeBeanName = sanitizedBean.beanName;
   const { bean: enrichedBean, searched } = await enrichBeanMetadataIfNeeded(
@@ -4001,6 +4069,11 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
     dripper: "Omni",
     brewMode,
     bean: enrichedBean,
+    ...(engineMeta ? {
+      profile: engineMeta.profile,
+      rulesVersion: engineMeta.rulesVersion,
+      fingerprint: engineMeta.fingerprint
+    } : {}),
     ...icedServing === null ? {} : { icedServing }
   };
   validateRecipeInvariants(recipe);
@@ -4012,7 +4085,10 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
     storeName: safeStoreName,
     beanName: safeBeanName,
     recipeJson: JSON.stringify(recipe),
-    source
+    source,
+    profile: engineMeta?.profile ?? null,
+    rulesVersion: engineMeta?.rulesVersion ?? null,
+    fingerprint: engineMeta?.fingerprint ?? null
   };
   if (confirmationId) {
     await storeRecipeAndCompleteConfirmation(env.DB, {
@@ -4032,7 +4108,14 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
     recipeId,
     recipe,
     201,
-    xBloomJob ? { xBloomJob: serializeRecipeBridgeJob(xBloomJob) } : {}
+    {
+      cached: false,
+      ...(engineMeta ? {
+        profile: engineMeta.profile,
+        rulesVersion: engineMeta.rulesVersion
+      } : {}),
+      ...(xBloomJob ? { xBloomJob: serializeRecipeBridgeJob(xBloomJob) } : {})
+    }
   );
 }
 __name(generateAndStoreRecipe, "generateAndStoreRecipe");

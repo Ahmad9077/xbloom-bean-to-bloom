@@ -1,0 +1,238 @@
+{
+  "rulesVersion": "1.0.0",
+  "machine": "xBloom Studio",
+  "brewMethod": "V60",
+  "authoring_note": "Single source of truth for all recipes. Edit only via CALIBRATION.md rules. Every change must pass validate-recipe-table.mjs and bump rulesVersion.",
+  "menus": {
+    "hot": {
+      "finalDrinkMl": [210, 225, 240, 255, 270],
+      "default": 255,
+      "machineWaterEqualsFinal": true,
+      "note": "Menu changed from 200/225/250/275/300 because dose*ratio must exactly equal water. All new sizes have exact integer dose/ratio pairs."
+    },
+    "cold": {
+      "finalDrinkMl": [240, 270, 300, 330, 360],
+      "default": 300,
+      "waterPercentBand": [55, 65],
+      "iceRule": "iceG = finalDrinkMl - waterMl. Ice goes in the carafe and is NEVER entered in the xBloom app.",
+      "note": "300ml default keeps 180ml water + 120g ice for bright, funky and dark profiles. Neutral 300 uses 176ml + 124g (exact 16g x 1:11)."
+    }
+  },
+  "pourCountRule": "3 pours when waterMl < 170, otherwise 4 pours",
+  "profiles": {
+    "bright_clean": {
+      "labelEn": "Bright & fruity",
+      "labelAr": "مشرق ونظيف",
+      "emoji": "☀️",
+      "description": "Washed light/medium-light roasts. Citrus, floral, tea-like, berries. Needs strong hot extraction to develop sweetness that balances acidity.",
+      "examples": ["Ethiopia washed", "Kenya AA", "Panama Gesha washed"]
+    },
+    "bright_funky": {
+      "labelEn": "Funky natural",
+      "labelAr": "طبيعي / تخميري",
+      "emoji": "🍓",
+      "description": "Naturals, anaerobics, co-ferments, infused lots. Fruit-forward and intense. Brewed COOLER than bright_clean to avoid fermented harshness.",
+      "examples": ["Yemen Haraz natural", "Colombia anaerobic", "co-fermented lots"]
+    },
+    "neutral_classic": {
+      "labelEn": "Classic balanced",
+      "labelAr": "كلاسيكي متوازن",
+      "emoji": "⚖️",
+      "description": "Balanced washed/honey medium roasts, chocolate/caramel/nut notes, and any bean with low classification confidence. The safe default.",
+      "examples": ["Colombia washed medium", "Brazil natural (chocolate/nut, medium roast)"]
+    },
+    "dark_roasty": {
+      "labelEn": "Dark & roasty",
+      "labelAr": "تحميص غامق",
+      "emoji": "🍫",
+      "description": "Medium-dark and dark roasts. Cool water, coarse grind, gentle handling to keep bitterness and ash out of the cup.",
+      "examples": ["French roast", "Italian roast", "classic dark espresso blends brewed as filter"]
+    }
+  },
+  "recipes": {
+    "bright_clean": {
+      "hot": {
+        "params": {
+          "grindSize": 38,
+          "grindBand": [34, 42],
+          "rpm": 90,
+          "bloomFlow": 3.5,
+          "mainFlow": 3.1,
+          "tempRange": [91, 95],
+          "tempsByPourCount": { "4": [94, 93, 92, 92] },
+          "pausesByPourCount": { "4": [35, 12, 10, 5] },
+          "patternsByPourCount": { "4": ["spiral", "circular", "spiral", "centered"] },
+          "agitateAfterByPourCount": { "4": [true, false, false, false] },
+          "agitateBeforeByPourCount": { "4": [false, true, false, false] }
+        },
+        "sizes": {
+          "210": { "doseG": 14, "ratioN": 15, "waterMl": 210, "pours": [ { "label": "Bloom", "volumeMl": 34 }, { "label": "Pour 2", "volumeMl": 64 }, { "label": "Pour 3", "volumeMl": 60 }, { "label": "Pour 4", "volumeMl": 52 } ] },
+          "225": { "doseG": 15, "ratioN": 15, "waterMl": 225, "pours": [ { "label": "Bloom", "volumeMl": 36 }, { "label": "Pour 2", "volumeMl": 68 }, { "label": "Pour 3", "volumeMl": 64 }, { "label": "Pour 4", "volumeMl": 57 } ] },
+          "240": { "doseG": 16, "ratioN": 15, "waterMl": 240, "pours": [ { "label": "Bloom", "volumeMl": 38 }, { "label": "Pour 2", "volumeMl": 73 }, { "label": "Pour 3", "volumeMl": 67 }, { "label": "Pour 4", "volumeMl": 62 } ] },
+          "255": { "doseG": 17, "ratioN": 15, "waterMl": 255, "pours": [ { "label": "Bloom", "volumeMl": 41 }, { "label": "Pour 2", "volumeMl": 77 }, { "label": "Pour 3", "volumeMl": 71 }, { "label": "Pour 4", "volumeMl": 66 } ] },
+          "270": { "doseG": 18, "ratioN": 15, "waterMl": 270, "pours": [ { "label": "Bloom", "volumeMl": 43 }, { "label": "Pour 2", "volumeMl": 82 }, { "label": "Pour 3", "volumeMl": 76 }, { "label": "Pour 4", "volumeMl": 69 } ] }
+        }
+      },
+      "cold": {
+        "params": {
+          "grindSize": 40,
+          "grindBand": [36, 44],
+          "rpm": 90,
+          "bloomFlow": 3.5,
+          "mainFlow": 3.1,
+          "tempRange": [90, 95],
+          "tempsByPourCount": { "3": [94, 93, 92], "4": [94, 93, 92, 91] },
+          "pausesByPourCount": { "3": [35, 12, 5], "4": [35, 12, 10, 5] },
+          "patternsByPourCount": { "3": ["spiral", "circular", "centered"], "4": ["spiral", "circular", "spiral", "centered"] },
+          "agitateAfterByPourCount": { "3": [true, false, false], "4": [true, false, false, false] },
+          "agitateBeforeByPourCount": { "3": [false, true, false], "4": [false, true, false, false] }
+        },
+        "sizes": {
+          "240": { "doseG": 15, "ratioN": 10, "waterMl": 150, "iceG": 90, "pours": [ { "label": "Bloom", "volumeMl": 36 }, { "label": "Pour 2", "volumeMl": 62 }, { "label": "Pour 3", "volumeMl": 52 } ] },
+          "270": { "doseG": 16, "ratioN": 10, "waterMl": 160, "iceG": 110, "pours": [ { "label": "Bloom", "volumeMl": 38 }, { "label": "Pour 2", "volumeMl": 66 }, { "label": "Pour 3", "volumeMl": 56 } ] },
+          "300": { "doseG": 18, "ratioN": 10, "waterMl": 180, "iceG": 120, "pours": [ { "label": "Bloom", "volumeMl": 43 }, { "label": "Pour 2", "volumeMl": 49 }, { "label": "Pour 3", "volumeMl": 47 }, { "label": "Pour 4", "volumeMl": 41 } ] },
+          "330": { "doseG": 18, "ratioN": 11, "waterMl": 198, "iceG": 132, "pours": [ { "label": "Bloom", "volumeMl": 43 }, { "label": "Pour 2", "volumeMl": 56 }, { "label": "Pour 3", "volumeMl": 52 }, { "label": "Pour 4", "volumeMl": 47 } ] },
+          "360": { "doseG": 18, "ratioN": 12, "waterMl": 216, "iceG": 144, "pours": [ { "label": "Bloom", "volumeMl": 43 }, { "label": "Pour 2", "volumeMl": 62 }, { "label": "Pour 3", "volumeMl": 58 }, { "label": "Pour 4", "volumeMl": 53 } ] }
+        }
+      }
+    },
+    "bright_funky": {
+      "hot": {
+        "params": {
+          "grindSize": 40,
+          "grindBand": [36, 44],
+          "rpm": 80,
+          "bloomFlow": 3.5,
+          "mainFlow": 3.0,
+          "tempRange": [88, 93],
+          "tempsByPourCount": { "4": [92, 91, 90, 90] },
+          "pausesByPourCount": { "4": [35, 12, 10, 5] },
+          "patternsByPourCount": { "4": ["spiral", "circular", "spiral", "centered"] },
+          "agitateAfterByPourCount": { "4": [true, false, false, false] },
+          "agitateBeforeByPourCount": { "4": [false, true, false, false] }
+        },
+        "sizes": {
+          "210": { "doseG": 14, "ratioN": 15, "waterMl": 210, "pours": [ { "label": "Bloom", "volumeMl": 34 }, { "label": "Pour 2", "volumeMl": 64 }, { "label": "Pour 3", "volumeMl": 60 }, { "label": "Pour 4", "volumeMl": 52 } ] },
+          "225": { "doseG": 15, "ratioN": 15, "waterMl": 225, "pours": [ { "label": "Bloom", "volumeMl": 36 }, { "label": "Pour 2", "volumeMl": 68 }, { "label": "Pour 3", "volumeMl": 64 }, { "label": "Pour 4", "volumeMl": 57 } ] },
+          "240": { "doseG": 16, "ratioN": 15, "waterMl": 240, "pours": [ { "label": "Bloom", "volumeMl": 38 }, { "label": "Pour 2", "volumeMl": 73 }, { "label": "Pour 3", "volumeMl": 67 }, { "label": "Pour 4", "volumeMl": 62 } ] },
+          "255": { "doseG": 17, "ratioN": 15, "waterMl": 255, "pours": [ { "label": "Bloom", "volumeMl": 41 }, { "label": "Pour 2", "volumeMl": 77 }, { "label": "Pour 3", "volumeMl": 71 }, { "label": "Pour 4", "volumeMl": 66 } ] },
+          "270": { "doseG": 18, "ratioN": 15, "waterMl": 270, "pours": [ { "label": "Bloom", "volumeMl": 43 }, { "label": "Pour 2", "volumeMl": 82 }, { "label": "Pour 3", "volumeMl": 76 }, { "label": "Pour 4", "volumeMl": 69 } ] }
+        }
+      },
+      "cold": {
+        "params": {
+          "grindSize": 42,
+          "grindBand": [38, 46],
+          "rpm": 80,
+          "bloomFlow": 3.5,
+          "mainFlow": 3.0,
+          "tempRange": [88, 93],
+          "tempsByPourCount": { "3": [92, 91, 90], "4": [92, 91, 90, 90] },
+          "pausesByPourCount": { "3": [35, 12, 5], "4": [35, 12, 10, 5] },
+          "patternsByPourCount": { "3": ["spiral", "circular", "centered"], "4": ["spiral", "circular", "spiral", "centered"] },
+          "agitateAfterByPourCount": { "3": [true, false, false], "4": [true, false, false, false] },
+          "agitateBeforeByPourCount": { "3": [false, true, false], "4": [false, true, false, false] }
+        },
+        "sizes": {
+          "240": { "doseG": 15, "ratioN": 10, "waterMl": 150, "iceG": 90, "pours": [ { "label": "Bloom", "volumeMl": 36 }, { "label": "Pour 2", "volumeMl": 62 }, { "label": "Pour 3", "volumeMl": 52 } ] },
+          "270": { "doseG": 16, "ratioN": 10, "waterMl": 160, "iceG": 110, "pours": [ { "label": "Bloom", "volumeMl": 38 }, { "label": "Pour 2", "volumeMl": 66 }, { "label": "Pour 3", "volumeMl": 56 } ] },
+          "300": { "doseG": 18, "ratioN": 10, "waterMl": 180, "iceG": 120, "pours": [ { "label": "Bloom", "volumeMl": 43 }, { "label": "Pour 2", "volumeMl": 49 }, { "label": "Pour 3", "volumeMl": 47 }, { "label": "Pour 4", "volumeMl": 41 } ] },
+          "330": { "doseG": 18, "ratioN": 11, "waterMl": 198, "iceG": 132, "pours": [ { "label": "Bloom", "volumeMl": 43 }, { "label": "Pour 2", "volumeMl": 56 }, { "label": "Pour 3", "volumeMl": 52 }, { "label": "Pour 4", "volumeMl": 47 } ] },
+          "360": { "doseG": 18, "ratioN": 12, "waterMl": 216, "iceG": 144, "pours": [ { "label": "Bloom", "volumeMl": 43 }, { "label": "Pour 2", "volumeMl": 62 }, { "label": "Pour 3", "volumeMl": 58 }, { "label": "Pour 4", "volumeMl": 53 } ] }
+        }
+      }
+    },
+    "neutral_classic": {
+      "hot": {
+        "params": {
+          "grindSize": 44,
+          "grindBand": [40, 48],
+          "rpm": 80,
+          "bloomFlow": 3.5,
+          "mainFlow": 3.2,
+          "tempRange": [90, 95],
+          "tempsByPourCount": { "4": [93, 92, 91, 91] },
+          "pausesByPourCount": { "4": [30, 12, 10, 5] },
+          "patternsByPourCount": { "4": ["spiral", "circular", "spiral", "centered"] },
+          "agitateAfterByPourCount": { "4": [true, false, false, false] },
+          "agitateBeforeByPourCount": { "4": [false, false, false, false] }
+        },
+        "sizes": {
+          "210": { "doseG": 14, "ratioN": 15, "waterMl": 210, "pours": [ { "label": "Bloom", "volumeMl": 34 }, { "label": "Pour 2", "volumeMl": 64 }, { "label": "Pour 3", "volumeMl": 60 }, { "label": "Pour 4", "volumeMl": 52 } ] },
+          "225": { "doseG": 15, "ratioN": 15, "waterMl": 225, "pours": [ { "label": "Bloom", "volumeMl": 36 }, { "label": "Pour 2", "volumeMl": 68 }, { "label": "Pour 3", "volumeMl": 64 }, { "label": "Pour 4", "volumeMl": 57 } ] },
+          "240": { "doseG": 15, "ratioN": 16, "waterMl": 240, "pours": [ { "label": "Bloom", "volumeMl": 36 }, { "label": "Pour 2", "volumeMl": 74 }, { "label": "Pour 3", "volumeMl": 68 }, { "label": "Pour 4", "volumeMl": 62 } ] },
+          "255": { "doseG": 15, "ratioN": 17, "waterMl": 255, "pours": [ { "label": "Bloom", "volumeMl": 36 }, { "label": "Pour 2", "volumeMl": 79 }, { "label": "Pour 3", "volumeMl": 73 }, { "label": "Pour 4", "volumeMl": 67 } ] },
+          "270": { "doseG": 18, "ratioN": 15, "waterMl": 270, "pours": [ { "label": "Bloom", "volumeMl": 43 }, { "label": "Pour 2", "volumeMl": 82 }, { "label": "Pour 3", "volumeMl": 76 }, { "label": "Pour 4", "volumeMl": 69 } ] }
+        }
+      },
+      "cold": {
+        "params": {
+          "grindSize": 42,
+          "grindBand": [38, 46],
+          "rpm": 80,
+          "bloomFlow": 3.5,
+          "mainFlow": 3.2,
+          "tempRange": [89, 95],
+          "tempsByPourCount": { "3": [93, 92, 91], "4": [93, 92, 91, 90] },
+          "pausesByPourCount": { "3": [30, 12, 5], "4": [30, 12, 10, 5] },
+          "patternsByPourCount": { "3": ["spiral", "circular", "centered"], "4": ["spiral", "circular", "spiral", "centered"] },
+          "agitateAfterByPourCount": { "3": [true, false, false], "4": [true, false, false, false] },
+          "agitateBeforeByPourCount": { "3": [false, false, false], "4": [false, false, false, false] }
+        },
+        "sizes": {
+          "240": { "doseG": 13, "ratioN": 11, "waterMl": 143, "iceG": 97, "pours": [ { "label": "Bloom", "volumeMl": 31 }, { "label": "Pour 2", "volumeMl": 61 }, { "label": "Pour 3", "volumeMl": 51 } ] },
+          "270": { "doseG": 14, "ratioN": 11, "waterMl": 154, "iceG": 116, "pours": [ { "label": "Bloom", "volumeMl": 34 }, { "label": "Pour 2", "volumeMl": 65 }, { "label": "Pour 3", "volumeMl": 55 } ] },
+          "300": { "doseG": 16, "ratioN": 11, "waterMl": 176, "iceG": 124, "pours": [ { "label": "Bloom", "volumeMl": 38 }, { "label": "Pour 2", "volumeMl": 50 }, { "label": "Pour 3", "volumeMl": 46 }, { "label": "Pour 4", "volumeMl": 42 } ] },
+          "330": { "doseG": 18, "ratioN": 11, "waterMl": 198, "iceG": 132, "pours": [ { "label": "Bloom", "volumeMl": 43 }, { "label": "Pour 2", "volumeMl": 56 }, { "label": "Pour 3", "volumeMl": 52 }, { "label": "Pour 4", "volumeMl": 47 } ] },
+          "360": { "doseG": 18, "ratioN": 12, "waterMl": 216, "iceG": 144, "pours": [ { "label": "Bloom", "volumeMl": 43 }, { "label": "Pour 2", "volumeMl": 62 }, { "label": "Pour 3", "volumeMl": 58 }, { "label": "Pour 4", "volumeMl": 53 } ] }
+        }
+      }
+    },
+    "dark_roasty": {
+      "hot": {
+        "params": {
+          "grindSize": 48,
+          "grindBand": [44, 52],
+          "rpm": 70,
+          "bloomFlow": 3.5,
+          "mainFlow": 3.3,
+          "tempRange": [84, 91],
+          "tempsByPourCount": { "4": [88, 87, 86, 86] },
+          "pausesByPourCount": { "4": [25, 10, 8, 5] },
+          "patternsByPourCount": { "4": ["spiral", "circular", "spiral", "centered"] },
+          "agitateAfterByPourCount": { "4": [false, false, false, false] },
+          "agitateBeforeByPourCount": { "4": [false, false, false, false] }
+        },
+        "sizes": {
+          "210": { "doseG": 14, "ratioN": 15, "waterMl": 210, "pours": [ { "label": "Bloom", "volumeMl": 31 }, { "label": "Pour 2", "volumeMl": 64 }, { "label": "Pour 3", "volumeMl": 60 }, { "label": "Pour 4", "volumeMl": 55 } ] },
+          "225": { "doseG": 15, "ratioN": 15, "waterMl": 225, "pours": [ { "label": "Bloom", "volumeMl": 33 }, { "label": "Pour 2", "volumeMl": 69 }, { "label": "Pour 3", "volumeMl": 64 }, { "label": "Pour 4", "volumeMl": 59 } ] },
+          "240": { "doseG": 15, "ratioN": 16, "waterMl": 240, "pours": [ { "label": "Bloom", "volumeMl": 33 }, { "label": "Pour 2", "volumeMl": 75 }, { "label": "Pour 3", "volumeMl": 69 }, { "label": "Pour 4", "volumeMl": 63 } ] },
+          "255": { "doseG": 15, "ratioN": 17, "waterMl": 255, "pours": [ { "label": "Bloom", "volumeMl": 33 }, { "label": "Pour 2", "volumeMl": 80 }, { "label": "Pour 3", "volumeMl": 74 }, { "label": "Pour 4", "volumeMl": 68 } ] },
+          "270": { "doseG": 15, "ratioN": 18, "waterMl": 270, "pours": [ { "label": "Bloom", "volumeMl": 33 }, { "label": "Pour 2", "volumeMl": 85 }, { "label": "Pour 3", "volumeMl": 79 }, { "label": "Pour 4", "volumeMl": 73 } ] }
+        }
+      },
+      "cold": {
+        "params": {
+          "grindSize": 46,
+          "grindBand": [42, 50],
+          "rpm": 70,
+          "bloomFlow": 3.5,
+          "mainFlow": 3.3,
+          "tempRange": [86, 92],
+          "tempsByPourCount": { "3": [90, 89, 88], "4": [90, 89, 88, 88] },
+          "pausesByPourCount": { "3": [25, 10, 5], "4": [25, 10, 8, 5] },
+          "patternsByPourCount": { "3": ["spiral", "circular", "centered"], "4": ["spiral", "circular", "spiral", "centered"] },
+          "agitateAfterByPourCount": { "3": [false, false, false], "4": [false, false, false, false] },
+          "agitateBeforeByPourCount": { "3": [false, false, false], "4": [false, false, false, false] }
+        },
+        "sizes": {
+          "240": { "doseG": 12, "ratioN": 12, "waterMl": 144, "iceG": 96, "pours": [ { "label": "Bloom", "volumeMl": 26 }, { "label": "Pour 2", "volumeMl": 64 }, { "label": "Pour 3", "volumeMl": 54 } ] },
+          "270": { "doseG": 13, "ratioN": 12, "waterMl": 156, "iceG": 114, "pours": [ { "label": "Bloom", "volumeMl": 29 }, { "label": "Pour 2", "volumeMl": 69 }, { "label": "Pour 3", "volumeMl": 58 } ] },
+          "300": { "doseG": 15, "ratioN": 12, "waterMl": 180, "iceG": 120, "pours": [ { "label": "Bloom", "volumeMl": 33 }, { "label": "Pour 2", "volumeMl": 53 }, { "label": "Pour 3", "volumeMl": 49 }, { "label": "Pour 4", "volumeMl": 45 } ] },
+          "330": { "doseG": 16, "ratioN": 12, "waterMl": 192, "iceG": 138, "pours": [ { "label": "Bloom", "volumeMl": 35 }, { "label": "Pour 2", "volumeMl": 57 }, { "label": "Pour 3", "volumeMl": 53 }, { "label": "Pour 4", "volumeMl": 47 } ] },
+          "360": { "doseG": 18, "ratioN": 12, "waterMl": 216, "iceG": 144, "pours": [ { "label": "Bloom", "volumeMl": 40 }, { "label": "Pour 2", "volumeMl": 63 }, { "label": "Pour 3", "volumeMl": 59 }, { "label": "Pour 4", "volumeMl": 54 } ] }
+        }
+      }
+    }
+  }
+}
