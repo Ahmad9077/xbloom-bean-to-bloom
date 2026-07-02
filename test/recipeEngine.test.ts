@@ -35,7 +35,7 @@ describe("buildRecipe", () => {
 
     expect(recipe.name).toBe("admin - Cold/Qayel/Yemen");
     expect(recipe.profile).toBe("neutral_classic");
-    expect(recipe.rulesVersion).toBe("1.0.0");
+    expect(recipe.rulesVersion).toBe("1.0.1");
     expect(recipe.machine).toBe("xBloom Studio");
     expect(recipe.dripper).toBe("Omni");
     expect(recipe.totalVolumeMl).toBe(176);

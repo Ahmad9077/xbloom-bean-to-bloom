@@ -1,5 +1,5 @@
 {
-  "rulesVersion": "1.0.0",
+  "rulesVersion": "1.0.1",
   "machine": "xBloom Studio",
   "brewMethod": "V60",
   "authoring_note": "Single source of truth for all recipes. Edit only via CALIBRATION.md rules. Every change must pass validate-recipe-table.mjs and bump rulesVersion.",
@@ -121,7 +121,7 @@
       },
       "cold": {
         "params": {
-          "grindSize": 42,
+          "grindSize": 40,
           "grindBand": [38, 46],
           "rpm": 80,
           "bloomFlow": 3.5,
