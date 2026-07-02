@@ -3,6 +3,15 @@ import table from "./recipe-table.json" with { type: "json" };
 export const RULES_VERSION = table.rulesVersion;
 export const PROFILE_IDS = Object.freeze(Object.keys(table.recipes));
 
+export function getProfileOptions() {
+  return PROFILE_IDS.map((id) => ({
+    id,
+    labelEn: table.profiles[id]?.labelEn ?? id,
+    labelAr: table.profiles[id]?.labelAr ?? id,
+    emoji: table.profiles[id]?.emoji ?? "☕",
+  }));
+}
+
 function assertProfile(profile) {
   if (!Object.hasOwn(table.recipes, profile)) {
     throw new Error(`Unknown recipe profile: ${String(profile)}`);

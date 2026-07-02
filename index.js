@@ -6,6 +6,7 @@ import {
 import { classifyBean } from "./src/classifier.js";
 import {
   buildRecipe as buildTableRecipe,
+  getProfileOptions,
   getRecipeCell,
   selectTableFinalDrinkMl
 } from "./src/recipeEngine.js";
@@ -259,9 +260,10 @@ async function storeRecipeAndCompleteConfirmation(db, data) {
     db.prepare(
       `UPDATE pending_recipe_confirmations
          SET status = 'completed', result_recipe_id = ?,
+             chosen_profile = COALESCE(?, chosen_profile),
              processing_started_at = NULL, updated_at = ?
          WHERE id = ? AND owner_id = ? AND status = 'processing'`
-    ).bind(data.id, now, data.confirmationId, data.ownerId)
+    ).bind(data.id, data.chosenProfile ?? data.profile ?? null, now, data.confirmationId, data.ownerId)
   ]);
   if ((results[1]?.meta.changes ?? 0) !== 1) {
     throw new Error("Confirmation state changed before recipe commit");
@@ -296,9 +298,20 @@ async function createPendingRecipeConfirmation(db, data) {
   const expiresAt = now + RECIPE_CONFIRMATION_TTL_MS;
   await db.prepare(
     `INSERT INTO pending_recipe_confirmations
-         (id, owner_id, bean_json, brew_mode, status, expires_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`
-  ).bind(data.id, data.ownerId, data.beanJson, data.brewMode, expiresAt, now, now).run();
+         (id, owner_id, bean_json, brew_mode, status, expires_at,
+          suggested_profile, classifier_confidence, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`
+  ).bind(
+    data.id,
+    data.ownerId,
+    data.beanJson,
+    data.brewMode,
+    expiresAt,
+    data.suggestedProfile ?? null,
+    data.classifierConfidence ?? null,
+    now,
+    now
+  ).run();
   return expiresAt;
 }
 async function findPendingRecipeConfirmation(db, id, ownerId) {
@@ -2711,15 +2724,15 @@ var PAUSE_MAX = 59;
 var BYPASS_VOL_MIN = 5;
 var BYPASS_VOL_MAX = 100;
 var VALID_DRIPPERS = /* @__PURE__ */ new Set(["Omni", "xPod", "Other"]);
-var HOT_DEFAULT_FINAL_ML = 250;
+var HOT_DEFAULT_FINAL_ML = 255;
 var COLD_DEFAULT_FINAL_ML = 300;
-var HOT_TOTAL_MIN_ML = 200;
-var HOT_TOTAL_MAX_ML = 300;
+var HOT_TOTAL_MIN_ML = 210;
+var HOT_TOTAL_MAX_ML = 270;
 var COLD_TOTAL_MIN_ML = 240;
 var COLD_TOTAL_MAX_ML = 360;
 var COLD_ICE_MIN_G = 96;
 var COLD_ICE_MAX_G = 144;
-var HOT_DRINK_CHOICES = [200, 225, 250, 275, 300];
+var HOT_DRINK_CHOICES = [210, 225, 240, 255, 270];
 var COLD_DRINK_CHOICES = [240, 270, 300, 330, 360];
 var USER_DOSE_CHOICES = [15, 16, 17, 18];
 function defaultFinalDrinkMl(brewMode) {
@@ -3517,12 +3530,30 @@ async function handleFromImages(request, env, requestId) {
   await recordRecipeAttempt(env.DB, ctx.userId);
   const extractedBean = sanitizeBeanMetadata(bean);
   const publicBean = hasImages ? discardVisionNames(extractedBean) : extractedBean;
+  let classification;
+  try {
+    classification = await chooseRecipeProfile(extractedBean, env);
+  } catch (error) {
+    console.warn({
+      event: "recipe_profile_prefill_failed",
+      requestId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    classification = {
+      profile: DEFAULT_RECIPE_PROFILE,
+      confidence: 0,
+      reasons: ["profile prefill failed"],
+      source: "fallback"
+    };
+  }
   const confirmationId = crypto.randomUUID();
   const expiresAt = await createPendingRecipeConfirmation(env.DB, {
     id: confirmationId,
     ownerId: ctx.userId,
     beanJson: JSON.stringify(extractedBean),
-    brewMode
+    brewMode,
+    suggestedProfile: classification.profile,
+    classifierConfidence: classification.confidence
   });
   return new Response(
     JSON.stringify({
@@ -3533,6 +3564,9 @@ async function handleFromImages(request, env, requestId) {
       brewMode,
       bean: publicBean,
       missingFields: missingConfirmationBeanFields(publicBean),
+      suggestedProfile: classification.profile,
+      classifierConfidence: classification.confidence,
+      profileOptions: getProfileOptions(),
       analysisFallback,
       expiresAt
     }),
@@ -3591,7 +3625,7 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
   }
   validateRecipePreferencesForMode(preferences, pending.brew_mode);
   const targets = resolveRecipeTargets(pending.brew_mode, preferences);
-  const chosenProfile = DEFAULT_RECIPE_PROFILE;
+  const chosenProfile = parseRecipeProfile(input.profile, pending.suggested_profile);
   const rulesVersion = RECIPE_RULES_VERSION;
   const fingerprint = await recipeFingerprint({
     roastery: storeName,
@@ -4109,76 +4143,103 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
     console.warn({ event: "product_enrichment_attempted", requestId });
   }
   assertEnoughBeanDataForRecommendation(enrichedBean, requestId);
-  const adminTasteProfile = await recipeOwnerUsesAdminTasteProfile(env.DB, ownerId);
-  let recommended;
-  try {
-    recommended = await recommendRecipe(enrichedBean, brewMode, env, preferences, {
-      adminTasteProfile,
-      tasteStyle: preferences.tasteStyle ?? "default"
-    });
-    recommended = normalizeRecommendationForBrewMode(recommended, brewMode, preferences);
-    const shadowTask = logRecipeShadow({
-      env,
-      requestId,
-      username,
-      bean: enrichedBean,
+  let recipe;
+  let effectiveEngineMeta = engineMeta;
+  if (env.RECIPE_ENGINE === "table") {
+    const targets = resolveRecipeTargets(brewMode, preferences);
+    const tableFinalDrinkMl = selectTableFinalDrinkMl(brewMode, targets.finalDrinkMl);
+    let profile = effectiveEngineMeta?.profile;
+    if (!isValidRecipeProfile(profile)) {
+      const classification = await chooseRecipeProfile(enrichedBean, env);
+      profile = classification.profile;
+    }
+    effectiveEngineMeta = {
+      profile,
+      rulesVersion: RECIPE_RULES_VERSION,
+      fingerprint: effectiveEngineMeta?.fingerprint ?? null
+    };
+    recipe = buildTableRecipe({
+      profile,
       brewMode,
-      preferences,
-      legacyRecipe: recommended,
-      storeName: safeStoreName,
-      beanName: safeBeanName
+      finalDrinkMl: tableFinalDrinkMl,
+      beanMeta: enrichedBean,
+      username,
+      roastery: safeStoreName,
+      beanName: safeBeanName,
+      fingerprint: effectiveEngineMeta.fingerprint
     });
-    if (typeof executionCtx?.waitUntil === "function") {
-      executionCtx.waitUntil(shadowTask);
-    } else {
-      shadowTask.catch((error) => {
-        console.warn(JSON.stringify({
-          event: "recipe_shadow_unhandled",
-          shadow: true,
+  } else {
+    const adminTasteProfile = await recipeOwnerUsesAdminTasteProfile(env.DB, ownerId);
+    let recommended;
+    try {
+      recommended = await recommendRecipe(enrichedBean, brewMode, env, preferences, {
+        adminTasteProfile,
+        tasteStyle: preferences.tasteStyle ?? "default"
+      });
+      recommended = normalizeRecommendationForBrewMode(recommended, brewMode, preferences);
+      const shadowTask = logRecipeShadow({
+        env,
+        requestId,
+        username,
+        bean: enrichedBean,
+        brewMode,
+        preferences,
+        legacyRecipe: recommended,
+        storeName: safeStoreName,
+        beanName: safeBeanName
+      });
+      if (typeof executionCtx?.waitUntil === "function") {
+        executionCtx.waitUntil(shadowTask);
+      } else {
+        shadowTask.catch((error) => {
+          console.warn(JSON.stringify({
+            event: "recipe_shadow_unhandled",
+            shadow: true,
+            requestId,
+            error: error instanceof Error ? error.message : String(error)
+          }));
+        });
+      }
+    } catch (error) {
+      if (error instanceof UpstreamMalformedError) {
+        console.warn({
+          event: "recipe_recommendation_failed",
           requestId,
-          error: error instanceof Error ? error.message : String(error)
-        }));
-      });
+          code: error.code,
+          category: "malformed"
+        });
+        throw new RecipeUpstreamMalformedError(
+          "The recipe recommendation service returned an unusable response"
+        );
+      }
+      if (error instanceof UpstreamError) {
+        console.warn({
+          event: "recipe_recommendation_failed",
+          requestId,
+          code: error.code,
+          category: "provider"
+        });
+        throw new RecipeUpstreamError("The recipe recommendation service is temporarily unavailable");
+      }
+      throw error;
     }
-  } catch (error) {
-    if (error instanceof UpstreamMalformedError) {
-      console.warn({
-        event: "recipe_recommendation_failed",
-        requestId,
-        code: error.code,
-        category: "malformed"
-      });
-      throw new RecipeUpstreamMalformedError(
-        "The recipe recommendation service returned an unusable response"
-      );
-    }
-    if (error instanceof UpstreamError) {
-      console.warn({
-        event: "recipe_recommendation_failed",
-        requestId,
-        code: error.code,
-        category: "provider"
-      });
-      throw new RecipeUpstreamError("The recipe recommendation service is temporarily unavailable");
-    }
-    throw error;
+    const recipeName = buildRecipeName(username, brewMode, safeStoreName, safeBeanName);
+    const { icedServing, ...recipeCore } = recommended;
+    recipe = {
+      ...recipeCore,
+      name: recipeName,
+      machine: "xBloom Studio",
+      dripper: "Omni",
+      brewMode,
+      bean: enrichedBean,
+      ...(engineMeta ? {
+        profile: engineMeta.profile,
+        rulesVersion: engineMeta.rulesVersion,
+        fingerprint: engineMeta.fingerprint
+      } : {}),
+      ...icedServing === null ? {} : { icedServing }
+    };
   }
-  const recipeName = buildRecipeName(username, brewMode, safeStoreName, safeBeanName);
-  const { icedServing, ...recipeCore } = recommended;
-  const recipe = {
-    ...recipeCore,
-    name: recipeName,
-    machine: "xBloom Studio",
-    dripper: "Omni",
-    brewMode,
-    bean: enrichedBean,
-    ...(engineMeta ? {
-      profile: engineMeta.profile,
-      rulesVersion: engineMeta.rulesVersion,
-      fingerprint: engineMeta.fingerprint
-    } : {}),
-    ...icedServing === null ? {} : { icedServing }
-  };
   validateRecipeInvariants(recipe);
   const recipeId = crypto.randomUUID();
   const recipeData = {
@@ -4189,9 +4250,9 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
     beanName: safeBeanName,
     recipeJson: JSON.stringify(recipe),
     source,
-    profile: engineMeta?.profile ?? null,
-    rulesVersion: engineMeta?.rulesVersion ?? null,
-    fingerprint: engineMeta?.fingerprint ?? null
+    profile: effectiveEngineMeta?.profile ?? null,
+    rulesVersion: effectiveEngineMeta?.rulesVersion ?? null,
+    fingerprint: effectiveEngineMeta?.fingerprint ?? null
   };
   if (confirmationId) {
     await storeRecipeAndCompleteConfirmation(env.DB, {
@@ -4213,9 +4274,9 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
     201,
     {
       cached: false,
-      ...(engineMeta ? {
-        profile: engineMeta.profile,
-        rulesVersion: engineMeta.rulesVersion
+      ...(effectiveEngineMeta ? {
+        profile: effectiveEngineMeta.profile,
+        rulesVersion: effectiveEngineMeta.rulesVersion
       } : {}),
       ...(xBloomJob ? { xBloomJob: serializeRecipeBridgeJob(xBloomJob) } : {})
     }
@@ -4259,6 +4320,27 @@ function buildRecipeName(username, brewMode, storeName, beanName) {
   return `${username} - ${modeLabel}/${storeName}/${beanName}`;
 }
 __name(buildRecipeName, "buildRecipeName");
+function isValidRecipeProfile(profile) {
+  return getProfileOptions().some((option) => option.id === profile);
+}
+__name(isValidRecipeProfile, "isValidRecipeProfile");
+function parseRecipeProfile(input, fallbackProfile) {
+  const fallback = isValidRecipeProfile(fallbackProfile) ? fallbackProfile : DEFAULT_RECIPE_PROFILE;
+  if (input === void 0 || input === null || input === "") return fallback;
+  if (typeof input !== "string" || !isValidRecipeProfile(input)) {
+    throw new ClientError("Recipe profile must be one of the available choices");
+  }
+  return input;
+}
+__name(parseRecipeProfile, "parseRecipeProfile");
+async function chooseRecipeProfile(bean, env) {
+  const classification = await classifyBean(bean, env);
+  return isValidRecipeProfile(classification.profile) ? classification : {
+    ...classification,
+    profile: DEFAULT_RECIPE_PROFILE
+  };
+}
+__name(chooseRecipeProfile, "chooseRecipeProfile");
 function limitChars(value, maxChars) {
   return Array.from(value).slice(0, maxChars).join("").trim();
 }
@@ -4321,12 +4403,50 @@ async function handleGetRecipe(request, env, requestId, recipeId) {
   } catch {
     throw new NotFoundError("Recipe not found");
   }
+  if (recipe && typeof recipe === "object" && !Array.isArray(recipe)) {
+    recipe.rating = row.rating ?? null;
+  }
   return new Response(JSON.stringify({ ok: true, requestId, id: row.id, recipe }), {
     status: 200,
     headers: { "Content-Type": "application/json;charset=UTF-8" }
   });
 }
 __name(handleGetRecipe, "handleGetRecipe");
+async function handleRateRecipe(request, env, requestId, recipeId) {
+  enforceSameOrigin(request);
+  const ctx = await requireAuth(request, env);
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    throw new ClientError("Request body must be valid JSON");
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new ClientError("Request body must be an object");
+  }
+  const value = body.value;
+  if (value !== 1 && value !== -1 && value !== 0) {
+    throw new ClientError("Rating value must be 1, -1, or 0");
+  }
+  const row = await findRecipeById(env.DB, recipeId);
+  if (!row || row.owner_id !== ctx.userId) {
+    throw new NotFoundError("Recipe not found");
+  }
+  const now = Date.now();
+  const rating = value === 0 ? null : value;
+  await env.DB.prepare("UPDATE recipes SET rating = ?, rated_at = ?, updated_at = ? WHERE id = ? AND owner_id = ?").bind(
+    rating,
+    rating === null ? null : now,
+    now,
+    recipeId,
+    ctx.userId
+  ).run();
+  return new Response(JSON.stringify({ ok: true, requestId, id: recipeId, rating }), {
+    status: 200,
+    headers: { "Content-Type": "application/json;charset=UTF-8" }
+  });
+}
+__name(handleRateRecipe, "handleRateRecipe");
 function parseBrewMode(formData) {
   const raw = formData.get("brewMode");
   if (raw === null) return "cold";
@@ -4428,30 +4548,62 @@ function secureApiResponse(response) {
   });
 }
 __name(secureApiResponse, "secureApiResponse");
-var TASTE_STYLE_FRONTEND_VERSION = "missing-details-20260701";
+var TASTE_STYLE_FRONTEND_VERSION = "phase3-table-20260702";
 function patchRecipeStyleFrontendScript(script) {
   let patched = script;
   patched = patched.replace(
     'const uh=[200,225,250,275,300],ch=[240,270,300,330,360],dh=[15,16,17,18],recipeStyleChoices=[["default","Default"],["more_fruity","More Fruity"],["more_sweet","More Sweet"],["more_strong","More Strong"]],ai=8,ui=10;',
-    'const uh=[200,225,250,275,300],ch=[240,270,300,330,360],ai=8,ui=10;'
+    'const uh=[210,225,240,255,270],ch=[240,270,300,330,360],ai=8,ui=10;'
+  );
+  patched = patched.replace(
+    'const uh=[200,225,250,275,300],ch=[240,270,300,330,360],ai=8,ui=10;',
+    'const uh=[210,225,240,255,270],ch=[240,270,300,330,360],ai=8,ui=10;'
   );
   const componentStart = patched.indexOf('function fh(');
   const componentEnd = componentStart >= 0 ? patched.indexOf('const ph=', componentStart) : -1;
   if (componentStart >= 0 && componentEnd > componentStart) {
-    const replacement = 'function fh({confirmation:o,submitting:c,error:a,onConfirm:d,onCancel:p}){const[v,h]=N.useState(Xl(o.bean.storeName,ai)),[x,S]=N.useState(Xl(o.bean.beanName,ui)),E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?250:300,[b,z]=N.useState(C),B=v.trim().length>0&&x.trim().length>0,R=b!==null?{finalDrinkMl:b}:{};return i.jsx("div",{className:"fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/45 px-4 py-6",role:"presentation",children:i.jsxs("dialog",{open:!0,"aria-labelledby":"bean-confirmation-title",className:"w-full max-w-md rounded-card bg-ivory p-6 shadow-2xl",children:[i.jsx("h2",{id:"bean-confirmation-title",className:"font-heading text-3xl text-espresso",children:"Confirm Below Details"}),i.jsxs("div",{className:"mt-5 space-y-4",children:[i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Rostery/Café",i.jsx("input",{value:v,onChange:A=>h(Xl(A.target.value,ai)),maxLength:ai,disabled:c,className:`mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal\n                         text-espresso focus-visible:outline-2 focus-visible:outline-terracotta`,placeholder:"Max 8 characters"})]}),i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Bean name",i.jsx("input",{value:x,onChange:A=>S(Xl(A.target.value,ui)),maxLength:ui,disabled:c,className:`mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal\n                         text-espresso focus-visible:outline-2 focus-visible:outline-terracotta`,placeholder:"Max 10 characters"})]}),i.jsxs("fieldset",{disabled:c,children:[i.jsx("legend",{className:"text-sm font-semibold text-espresso",children:"Total Drink ml"}),i.jsx("div",{className:"mt-2 grid grid-cols-5 gap-2",children:E.map(A=>{const Q=b===A;return i.jsx("button",{type:"button","aria-pressed":Q,onClick:()=>z(A),className:`min-h-touch rounded-2xl border px-2 py-2 text-sm font-semibold transition\n                      ${Q?"border-espresso bg-espresso text-ivory":"border-sage/40 bg-white text-espresso"}`,children:A},A)})})]}),a&&i.jsx("p",{role:"alert",className:"mt-4 text-sm text-red-700",children:a}),i.jsxs("div",{className:"mt-6 space-y-3",children:[i.jsx("button",{type:"button",disabled:!B||c,onClick:()=>d(v.trim(),x.trim(),R),className:`w-full min-h-touch rounded-card bg-espresso px-4 py-3 font-semibold text-ivory\n                       disabled:cursor-not-allowed disabled:opacity-40`,children:c?"Creating recipe…":"Confirm and create recipe"}),i.jsx("button",{type:"button",disabled:c,onClick:p,className:`w-full min-h-touch rounded-card border border-sage/50 px-4 py-3 font-semibold\n                       text-espresso disabled:opacity-40`,children:"Cancel"})]})]})]})})}';
+    const replacement = 'function fh({confirmation:o,submitting:c,error:a,onConfirm:d,onCancel:p}){const[v,h]=N.useState(Xl(o.bean.storeName,ai)),[x,S]=N.useState(Xl(o.bean.beanName,ui)),E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?255:300,[b,z]=N.useState(C),B=v.trim().length>0&&x.trim().length>0,R=b!==null?{finalDrinkMl:b}:{};return i.jsx("div",{className:"fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/45 px-4 py-6",role:"presentation",children:i.jsxs("dialog",{open:!0,"aria-labelledby":"bean-confirmation-title",className:"w-full max-w-md rounded-card bg-ivory p-6 shadow-2xl",children:[i.jsx("h2",{id:"bean-confirmation-title",className:"font-heading text-3xl text-espresso",children:"Confirm Below Details"}),i.jsxs("div",{className:"mt-5 space-y-4",children:[i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Rostery/Café",i.jsx("input",{value:v,onChange:A=>h(Xl(A.target.value,ai)),maxLength:ai,disabled:c,className:`mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal\n                         text-espresso focus-visible:outline-2 focus-visible:outline-terracotta`,placeholder:"Max 8 characters"})]}),i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Bean name",i.jsx("input",{value:x,onChange:A=>S(Xl(A.target.value,ui)),maxLength:ui,disabled:c,className:`mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal\n                         text-espresso focus-visible:outline-2 focus-visible:outline-terracotta`,placeholder:"Max 10 characters"})]}),i.jsxs("fieldset",{disabled:c,children:[i.jsx("legend",{className:"text-sm font-semibold text-espresso",children:"Total Drink ml"}),i.jsx("div",{className:"mt-2 grid grid-cols-5 gap-2",children:E.map(A=>{const Q=b===A;return i.jsx("button",{type:"button","aria-pressed":Q,onClick:()=>z(A),className:`min-h-touch rounded-2xl border px-2 py-2 text-sm font-semibold transition\n                      ${Q?"border-espresso bg-espresso text-ivory":"border-sage/40 bg-white text-espresso"}`,children:A},A)})})]}),a&&i.jsx("p",{role:"alert",className:"mt-4 text-sm text-red-700",children:a}),i.jsxs("div",{className:"mt-6 space-y-3",children:[i.jsx("button",{type:"button",disabled:!B||c,onClick:()=>d(v.trim(),x.trim(),R),className:`w-full min-h-touch rounded-card bg-espresso px-4 py-3 font-semibold text-ivory\n                       disabled:cursor-not-allowed disabled:opacity-40`,children:c?"Creating recipe…":"Confirm and create recipe"}),i.jsx("button",{type:"button",disabled:c,onClick:p,className:`w-full min-h-touch rounded-card border border-sage/50 px-4 py-3 font-semibold\n                       text-espresso disabled:opacity-40`,children:"Cancel"})]})]})]})})}';
     patched = patched.slice(0, componentStart) + replacement + patched.slice(componentEnd);
   }
   patched = patched.replace(
-    'E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?250:300,[b,z]=N.useState(C),B=v.trim().length>0&&x.trim().length>0,R=b!==null?{finalDrinkMl:b}:{};return',
-    'E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?250:300,[b,z]=N.useState(C),m=new Set(Array.isArray(o.missingFields)?o.missingFields:[]),F=o.bean||{},O=m.has("origin"),P=m.has("processingMethod"),D=m.has("description")||m.has("flavors")||m.has("flavors or description"),[L,U]=N.useState(F.origin||""),[V,W]=N.useState(F.processingMethod||""),[Y,K]=N.useState((Array.isArray(F.flavors)&&F.flavors.length?F.flavors.join(", "):F.description)||""),B=v.trim().length>0&&x.trim().length>0&&(!O||L.trim().length>0)&&(!P||V.trim().length>0)&&(!D||Y.trim().length>0);function R(){const A=b!==null?{finalDrinkMl:b}:{};O&&(A.origin=L.trim());P&&(A.processingMethod=V.trim());D&&(A.description=Y.trim());return A}return'
+    'E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?255:300,[b,z]=N.useState(C),B=v.trim().length>0&&x.trim().length>0,R=b!==null?{finalDrinkMl:b}:{};return',
+    'E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?255:300,[b,z]=N.useState(C),m=new Set(Array.isArray(o.missingFields)?o.missingFields:[]),F=o.bean||{},O=m.has("origin"),P=m.has("processingMethod"),D=m.has("description")||m.has("flavors")||m.has("flavors or description"),[L,U]=N.useState(F.origin||""),[V,W]=N.useState(F.processingMethod||""),[Y,K]=N.useState((Array.isArray(F.flavors)&&F.flavors.length?F.flavors.join(", "):F.description)||""),H=Array.isArray(o.profileOptions)?o.profileOptions:[],J=o.suggestedProfile||"neutral_classic",[ee,se]=N.useState(J),ue=typeof o.classifierConfidence==="number"&&o.classifierConfidence<.6,B=v.trim().length>0&&x.trim().length>0&&(!O||L.trim().length>0)&&(!P||V.trim().length>0)&&(!D||Y.trim().length>0);function R(){const A=b!==null?{finalDrinkMl:b}:{};A.profile=ee;O&&(A.origin=L.trim());P&&(A.processingMethod=V.trim());D&&(A.description=Y.trim());return A}return'
   );
   patched = patched.replace(
     'placeholder:"Max 10 characters"})]}),i.jsxs("fieldset",{disabled:c,children:[',
-    'placeholder:"Max 10 characters"})]}),O&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Origin",i.jsx("input",{value:L,onChange:A=>U(A.target.value.slice(0,100)),maxLength:100,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: Yemen / Ethiopia"})]}),P&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Processing method",i.jsxs("select",{value:V,onChange:A=>W(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:[i.jsx("option",{value:"",children:"Select process"}),["washed","natural","honey","anaerobic","co-fermented","infused","unknown"].map(A=>i.jsx("option",{value:A,children:A},A))]})]}),D&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Tasting notes / description",i.jsx("textarea",{value:Y,onChange:A=>K(A.target.value.slice(0,200)),maxLength:200,rows:3,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: red fruits, chocolate, floral"})]}),i.jsxs("fieldset",{disabled:c,children:['
+    'placeholder:"Max 10 characters"})]}),O&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Origin",i.jsx("input",{value:L,onChange:A=>U(A.target.value.slice(0,100)),maxLength:100,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: Yemen / Ethiopia"})]}),P&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Processing method",i.jsxs("select",{value:V,onChange:A=>W(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:[i.jsx("option",{value:"",children:"Select process"}),["washed","natural","honey","anaerobic","co-fermented","infused","unknown"].map(A=>i.jsx("option",{value:A,children:A},A))]})]}),D&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Tasting notes / description",i.jsx("textarea",{value:Y,onChange:A=>K(A.target.value.slice(0,200)),maxLength:200,rows:3,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: red fruits, chocolate, floral"})]}),H.length>0&&i.jsxs("fieldset",{disabled:c,children:[i.jsx("legend",{className:"text-sm font-semibold text-espresso",children:"Recipe profile"}),i.jsx("div",{className:"mt-2 grid grid-cols-2 gap-2",children:H.map(A=>{const Q=ee===A.id;return i.jsxs("button",{type:"button","aria-pressed":Q,onClick:()=>se(A.id),className:`rounded-2xl border px-3 py-2 text-left text-xs font-semibold transition ${Q?"border-espresso bg-espresso text-ivory":"border-sage/40 bg-white text-espresso"}`,children:[i.jsxs("span",{className:"block",children:[A.emoji," ",A.labelEn]}),A.labelAr&&i.jsx("span",{className:"mt-0.5 block text-[11px] opacity-70",children:A.labelAr})]},A.id)})}),ue&&i.jsx("p",{className:"mt-2 text-xs text-amber-700",children:"Check the profile if the coffee type looks different."})]}),i.jsxs("fieldset",{disabled:c,children:['
   );
   patched = patched.replace(
     'onClick:()=>d(v.trim(),x.trim(),R)',
     'onClick:()=>d(v.trim(),x.trim(),R())'
+  );
+  patched = patched.replace(
+    'className:"w-full max-w-md rounded-card bg-ivory p-6 shadow-2xl"',
+    'className:"max-h-[92vh] w-full max-w-md overflow-y-auto rounded-card bg-ivory p-6 shadow-2xl"'
+  );
+  patched = patched.replace(
+    'const re=await Nm(C.confirmationId,X,le,I);o(`/recipes/${re.id}`)',
+    'const re=await Nm(C.confirmationId,X,le,I);re.cached&&sessionStorage.setItem("xbloom:cachedRecipe",re.id);o(`/recipes/${re.id}`)'
+  );
+  patched = patched.replace(
+    'const Km={light:"Light Roast",medium:"Medium Roast",dark:"Dark Roast"};function ed({recipe:o,recipeId:c,readOnly:a=!1,backHref:d="/",backLabel:p="Back for a New Recipe"}){const v=o.brewMode==="cold";return',
+    'const Km={light:"Light Roast",medium:"Medium Roast",dark:"Dark Roast"};const rd={bright_clean:"Bright & fruity",bright_funky:"Funky natural",neutral_classic:"Classic balanced",dark_roasty:"Dark & roasty"};function ed({recipe:o,recipeId:c,readOnly:a=!1,backHref:d="/",backLabel:p="Back for a New Recipe"}){const v=o.brewMode==="cold",[h,x]=N.useState(o.rating??null),[S,E]=N.useState(null),[M]=N.useState(()=>{try{const b=sessionStorage.getItem("xbloom:cachedRecipe")===c;b&&sessionStorage.removeItem("xbloom:cachedRecipe");return b}catch{return!1}});async function C(b){const z=h===b?0:b;x(z===0?null:z),E(null);try{const T=await qe(`/api/recipes/${encodeURIComponent(c)}/rating`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({value:z})});x(T.rating??null)}catch(T){E(T instanceof De?T.message:"Could not save rating.")}}return'
+  );
+  patched = patched.replace(
+    'children:v?"V60":"Hot Pour-Over"',
+    'children:"V60"'
+  );
+  patched = patched.replace(
+    'i.jsx("span",{className:"text-xs text-ivory/50",children:o.machine})',
+    'i.jsxs("span",{className:"text-xs text-ivory/50",children:[o.machine,o.profile?` · ${rd[o.profile]??o.profile}`:"",o.rulesVersion?` · ${o.rulesVersion}`:""]})'
+  );
+  patched = patched.replace(
+    'o.bean.origin&&i.jsx("p",{className:"text-ivory/70 text-sm",children:o.bean.origin})',
+    'o.bean.origin&&i.jsx("p",{className:"text-ivory/70 text-sm",children:o.bean.origin}),M&&i.jsx("p",{className:"mt-3 inline-flex rounded-full bg-sage/20 px-3 py-1 text-xs font-semibold text-sage",children:"Saved recipe — same bean as before"})'
+  );
+  patched = patched.replace(
+    ']}),!a&&i.jsxs("section",{"aria-labelledby":"bridge-heading"',
+    ']}),!a&&i.jsxs("section",{"aria-labelledby":"rating-heading",children:[i.jsx("h2",{id:"rating-heading",className:"font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3",children:"How was the cup?"}),i.jsxs("div",{className:"bg-white rounded-card p-4 space-y-3",children:[i.jsx("p",{className:"text-sm text-espresso/70",children:"Your feedback helps calibrate this recipe profile."}),i.jsxs("div",{className:"grid grid-cols-2 gap-3",children:[i.jsx("button",{type:"button","aria-pressed":h===1,onClick:()=>C(1),className:`min-h-touch rounded-card border px-4 py-3 font-body font-semibold ${h===1?"border-sage bg-sage/20 text-espresso":"border-sage/30 text-espresso"}`,children:"👍 Good"}),i.jsx("button",{type:"button","aria-pressed":h===-1,onClick:()=>C(-1),className:`min-h-touch rounded-card border px-4 py-3 font-body font-semibold ${h===-1?"border-terracotta bg-terracotta/10 text-espresso":"border-sage/30 text-espresso"}`,children:"👎 Needs work"})]}),S&&i.jsx("p",{role:"alert",className:"text-xs text-red-700",children:S})]})]}),!a&&i.jsxs("section",{"aria-labelledby":"bridge-heading"'
   );
   return patched;
 }
@@ -4566,6 +4718,13 @@ var index_default = {
       if (pathname === "/api/recipes") {
         if (method !== "GET") throw new MethodNotAllowedError("Use GET");
         return secureApiResponse(await handleListRecipes(request, env, requestId));
+      }
+      const recipeRatingMatch = pathname.match(/^\/api\/recipes\/([^/]+)\/rating$/);
+      if (recipeRatingMatch) {
+        if (method !== "POST") throw new MethodNotAllowedError("Use POST");
+        return secureApiResponse(
+          await handleRateRecipe(request, env, requestId, recipeRatingMatch[1])
+        );
       }
       const recipeMatch = pathname.match(/^\/api\/recipes\/([^/]+)(\/bridge-jobs)?$/);
       if (recipeMatch) {

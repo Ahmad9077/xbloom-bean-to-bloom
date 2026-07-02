@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error recipeEngine is a runtime ESM JS module.
-import { buildRecipe, selectTableFinalDrinkMl } from "../src/recipeEngine.js";
+import { buildRecipe, getProfileOptions, selectTableFinalDrinkMl } from "../src/recipeEngine.js";
 
 const recipeTable = JSON.parse(
   readFileSync(fileURLToPath(String(new URL("../src/recipe-table.json", import.meta.url))), "utf8"),
@@ -104,5 +104,19 @@ describe("buildRecipe", () => {
   it("maps legacy hot 250ml target to the nearest shadow-table size", () => {
     expect(selectTableFinalDrinkMl("hot", 250)).toBe(255);
     expect(selectTableFinalDrinkMl("cold", 300)).toBe(300);
+  });
+
+  it("exposes frontend profile options from the table", () => {
+    expect(getProfileOptions()).toEqual([
+      expect.objectContaining({
+        id: "bright_clean",
+        labelEn: expect.any(String),
+        labelAr: expect.any(String),
+        emoji: expect.any(String),
+      }),
+      expect.objectContaining({ id: "bright_funky" }),
+      expect.objectContaining({ id: "neutral_classic" }),
+      expect.objectContaining({ id: "dark_roasty" }),
+    ]);
   });
 });
