@@ -24,7 +24,7 @@ export async function recipeFingerprint({
   brewMode,
   finalDrinkMl,
   profile = DEFAULT_RECIPE_PROFILE,
-  rulesVersion = RULES_VERSION
+  rulesVersion = RULES_VERSION,
 }) {
   const source = [
     normalizeFingerprintPart(roastery),
@@ -32,13 +32,8 @@ export async function recipeFingerprint({
     brewMode,
     String(finalDrinkMl),
     profile,
-    rulesVersion
+    rulesVersion,
   ].join("|");
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(source)
-  );
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }

@@ -3,6 +3,12 @@ import {
   RULES_VERSION as RECIPE_RULES_VERSION,
   recipeFingerprint
 } from "./src/fingerprint.js";
+import { classifyBean } from "./src/classifier.js";
+import {
+  buildRecipe as buildTableRecipe,
+  getRecipeCell,
+  selectTableFinalDrinkMl
+} from "./src/recipeEngine.js";
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
@@ -3534,7 +3540,7 @@ async function handleFromImages(request, env, requestId) {
   );
 }
 __name(handleFromImages, "handleFromImages");
-async function handleFromConfirmation(request, env, requestId) {
+async function handleFromConfirmation(request, env, requestId, executionCtx) {
   enforceSameOrigin(request);
   const ctx = await requireAuth(request, env);
   let body;
@@ -3635,7 +3641,8 @@ async function handleFromConfirmation(request, env, requestId) {
       { storeName: extracted.storeName, beanName: extracted.beanName },
       "web",
       false,
-      { profile: chosenProfile, rulesVersion, fingerprint }
+      { profile: chosenProfile, rulesVersion, fingerprint },
+      executionCtx
     );
     return response;
   } catch (error) {
@@ -3675,7 +3682,7 @@ async function handleFromConfirmation(request, env, requestId) {
   }
 }
 __name(handleFromConfirmation, "handleFromConfirmation");
-async function handleBridgeRecipeFromBean(request, env, requestId) {
+async function handleBridgeRecipeFromBean(request, env, requestId, executionCtx) {
   await requireServiceTokenAuth(request, env.WHATSAPP_RECIPE_TOKEN_HASH);
   const input = await readServiceJsonObject(request);
   const senderId = parseWhatsAppSenderId(input.senderId);
@@ -3696,11 +3703,13 @@ async function handleBridgeRecipeFromBean(request, env, requestId) {
     void 0,
     parseBridgeSearchHints(input.searchHints),
     "whatsapp",
-    true
+    true,
+    null,
+    executionCtx
   );
 }
 __name(handleBridgeRecipeFromBean, "handleBridgeRecipeFromBean");
-async function handleBridgeRecipeFromUpload(request, env, requestId) {
+async function handleBridgeRecipeFromUpload(request, env, requestId, executionCtx) {
   await requireServiceTokenAuth(request, env.WHATSAPP_RECIPE_TOKEN_HASH);
   let formData;
   try {
@@ -3735,7 +3744,9 @@ async function handleBridgeRecipeFromUpload(request, env, requestId) {
     void 0,
     {},
     "whatsapp",
-    true
+    true,
+    null,
+    executionCtx
   );
 }
 __name(handleBridgeRecipeFromUpload, "handleBridgeRecipeFromUpload");
@@ -4017,7 +4028,76 @@ async function recipeOwnerUsesAdminTasteProfile(db, ownerId) {
   return row?.role === "admin";
 }
 __name(recipeOwnerUsesAdminTasteProfile, "recipeOwnerUsesAdminTasteProfile");
-async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitizedBean, brewMode, preferences, confirmationId, searchHints = {}, source = "web", createXBloomLinkJob = false, engineMeta = null) {
+async function logRecipeShadow({
+  env,
+  requestId,
+  username,
+  bean,
+  brewMode,
+  preferences,
+  legacyRecipe,
+  storeName,
+  beanName
+}) {
+  if (env.RECIPE_SHADOW !== "1") return;
+  try {
+    const targets = resolveRecipeTargets(brewMode, preferences);
+    const classification = await classifyBean(bean, env);
+    const shadowFinalDrinkMl = selectTableFinalDrinkMl(brewMode, targets.finalDrinkMl);
+    const shadowRecipe = buildTableRecipe({
+      profile: classification.profile,
+      brewMode,
+      finalDrinkMl: shadowFinalDrinkMl,
+      beanMeta: bean,
+      username,
+      roastery: storeName,
+      beanName
+    });
+    validateRecipeInvariants(shadowRecipe);
+    const cell = getRecipeCell({
+      profile: classification.profile,
+      brewMode,
+      finalDrinkMl: shadowFinalDrinkMl
+    });
+    console.log(JSON.stringify({
+      event: "recipe_shadow",
+      shadow: true,
+      requestId,
+      source: classification.source,
+      profile: classification.profile,
+      classifierConfidence: classification.confidence,
+      classifierReasons: classification.reasons,
+      classifierRoastLevel: classification.roastLevel,
+      rulesVersion: shadowRecipe.rulesVersion,
+      cell: `${classification.profile}.${brewMode}.${shadowFinalDrinkMl}`,
+      brewMode,
+      requestedFinalDrinkMl: targets.finalDrinkMl,
+      shadowFinalDrinkMl,
+      legacyDose: legacyRecipe.doseG,
+      tableDose: shadowRecipe.doseG,
+      legacyWaterMl: legacyRecipe.totalVolumeMl,
+      tableWaterMl: shadowRecipe.totalVolumeMl,
+      tableIceG: shadowRecipe.icedServing?.iceG ?? null,
+      legacyGrind: legacyRecipe.grindSize,
+      tableGrind: shadowRecipe.grindSize,
+      legacyRpm: legacyRecipe.rpm,
+      tableRpm: shadowRecipe.rpm,
+      legacyPourCount: legacyRecipe.pours.length,
+      tablePourCount: shadowRecipe.pours.length,
+      tablePourSum: shadowRecipe.pours.reduce((sum, pour) => sum + pour.volumeMl, 0),
+      tableCellFound: cell !== null
+    }));
+  } catch (error) {
+    console.warn(JSON.stringify({
+      event: "recipe_shadow_failed",
+      shadow: true,
+      requestId,
+      error: error instanceof Error ? error.message : String(error)
+    }));
+  }
+}
+__name(logRecipeShadow, "logRecipeShadow");
+async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitizedBean, brewMode, preferences, confirmationId, searchHints = {}, source = "web", createXBloomLinkJob = false, engineMeta = null, executionCtx = null) {
   const safeStoreName = sanitizedBean.storeName;
   const safeBeanName = sanitizedBean.beanName;
   const { bean: enrichedBean, searched } = await enrichBeanMetadataIfNeeded(
@@ -4037,6 +4117,29 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
       tasteStyle: preferences.tasteStyle ?? "default"
     });
     recommended = normalizeRecommendationForBrewMode(recommended, brewMode, preferences);
+    const shadowTask = logRecipeShadow({
+      env,
+      requestId,
+      username,
+      bean: enrichedBean,
+      brewMode,
+      preferences,
+      legacyRecipe: recommended,
+      storeName: safeStoreName,
+      beanName: safeBeanName
+    });
+    if (typeof executionCtx?.waitUntil === "function") {
+      executionCtx.waitUntil(shadowTask);
+    } else {
+      shadowTask.catch((error) => {
+        console.warn(JSON.stringify({
+          event: "recipe_shadow_unhandled",
+          shadow: true,
+          requestId,
+          error: error instanceof Error ? error.message : String(error)
+        }));
+      });
+    }
   } catch (error) {
     if (error instanceof UpstreamMalformedError) {
       console.warn({
@@ -4397,7 +4500,7 @@ function isProtectedSpaRoute(pathname) {
 }
 __name(isProtectedSpaRoute, "isProtectedSpaRoute");
 var index_default = {
-  async fetch(request, env) {
+  async fetch(request, env, executionCtx) {
     const requestId = crypto.randomUUID();
     const url = new URL(request.url);
     const { pathname } = url;
@@ -4428,11 +4531,11 @@ var index_default = {
       }
       if (pathname === "/api/bridge/recipes/from-bean") {
         if (method !== "POST") throw new MethodNotAllowedError("Use POST");
-        return secureApiResponse(await handleBridgeRecipeFromBean(request, env, requestId));
+        return secureApiResponse(await handleBridgeRecipeFromBean(request, env, requestId, executionCtx));
       }
       if (pathname === "/api/bridge/recipes/from-upload") {
         if (method !== "POST") throw new MethodNotAllowedError("Use POST");
-        return secureApiResponse(await handleBridgeRecipeFromUpload(request, env, requestId));
+        return secureApiResponse(await handleBridgeRecipeFromUpload(request, env, requestId, executionCtx));
       }
       if (pathname === "/api/bridge/whatsapp-users/link") {
         if (method !== "POST") throw new MethodNotAllowedError("Use POST");
@@ -4458,7 +4561,7 @@ var index_default = {
       }
       if (pathname === "/api/recipes/from-confirmation") {
         if (method !== "POST") throw new MethodNotAllowedError("Use POST");
-        return secureApiResponse(await handleFromConfirmation(request, env, requestId));
+        return secureApiResponse(await handleFromConfirmation(request, env, requestId, executionCtx));
       }
       if (pathname === "/api/recipes") {
         if (method !== "GET") throw new MethodNotAllowedError("Use GET");

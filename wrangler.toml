@@ -20,6 +20,8 @@ run_worker_first = true
 
 [vars]
 ALLOWED_ORIGINS = "http://localhost:3000,http://localhost:8787"
+RECIPE_ENGINE = "legacy"
+RECIPE_SHADOW = "1"
 
 [triggers]
 crons = ["0 * * * *"]
