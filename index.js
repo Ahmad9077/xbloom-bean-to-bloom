@@ -3566,7 +3566,6 @@ async function handleFromImages(request, env, requestId) {
       missingFields: missingConfirmationBeanFields(publicBean),
       suggestedProfile: classification.profile,
       classifierConfidence: classification.confidence,
-      profileOptions: getProfileOptions(),
       analysisFallback,
       expiresAt
     }),
@@ -3625,7 +3624,7 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
   }
   validateRecipePreferencesForMode(preferences, pending.brew_mode);
   const targets = resolveRecipeTargets(pending.brew_mode, preferences);
-  const chosenProfile = parseRecipeProfile(input.profile, pending.suggested_profile);
+  const chosenProfile = parseRecipeProfile(void 0, pending.suggested_profile);
   const rulesVersion = RECIPE_RULES_VERSION;
   const fingerprint = await recipeFingerprint({
     roastery: storeName,
@@ -4548,7 +4547,7 @@ function secureApiResponse(response) {
   });
 }
 __name(secureApiResponse, "secureApiResponse");
-var TASTE_STYLE_FRONTEND_VERSION = "phase3-table-20260702";
+var TASTE_STYLE_FRONTEND_VERSION = "phase3-auto-profile-hidden-20260702";
 function patchRecipeStyleFrontendScript(script) {
   let patched = script;
   patched = patched.replace(
@@ -4567,11 +4566,11 @@ function patchRecipeStyleFrontendScript(script) {
   }
   patched = patched.replace(
     'E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?255:300,[b,z]=N.useState(C),B=v.trim().length>0&&x.trim().length>0,R=b!==null?{finalDrinkMl:b}:{};return',
-    'E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?255:300,[b,z]=N.useState(C),m=new Set(Array.isArray(o.missingFields)?o.missingFields:[]),F=o.bean||{},O=m.has("origin"),P=m.has("processingMethod"),D=m.has("description")||m.has("flavors")||m.has("flavors or description"),[L,U]=N.useState(F.origin||""),[V,W]=N.useState(F.processingMethod||""),[Y,K]=N.useState((Array.isArray(F.flavors)&&F.flavors.length?F.flavors.join(", "):F.description)||""),H=Array.isArray(o.profileOptions)?o.profileOptions:[],J=o.suggestedProfile||"neutral_classic",[ee,se]=N.useState(J),ue=typeof o.classifierConfidence==="number"&&o.classifierConfidence<.6,B=v.trim().length>0&&x.trim().length>0&&(!O||L.trim().length>0)&&(!P||V.trim().length>0)&&(!D||Y.trim().length>0);function R(){const A=b!==null?{finalDrinkMl:b}:{};A.profile=ee;O&&(A.origin=L.trim());P&&(A.processingMethod=V.trim());D&&(A.description=Y.trim());return A}return'
+    'E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?255:300,[b,z]=N.useState(C),m=new Set(Array.isArray(o.missingFields)?o.missingFields:[]),F=o.bean||{},O=m.has("origin"),P=m.has("processingMethod"),D=m.has("description")||m.has("flavors")||m.has("flavors or description"),[L,U]=N.useState(F.origin||""),[V,W]=N.useState(F.processingMethod||""),[Y,K]=N.useState((Array.isArray(F.flavors)&&F.flavors.length?F.flavors.join(", "):F.description)||""),B=v.trim().length>0&&x.trim().length>0&&(!O||L.trim().length>0)&&(!P||V.trim().length>0)&&(!D||Y.trim().length>0);function R(){const A=b!==null?{finalDrinkMl:b}:{};O&&(A.origin=L.trim());P&&(A.processingMethod=V.trim());D&&(A.description=Y.trim());return A}return'
   );
   patched = patched.replace(
     'placeholder:"Max 10 characters"})]}),i.jsxs("fieldset",{disabled:c,children:[',
-    'placeholder:"Max 10 characters"})]}),O&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Origin",i.jsx("input",{value:L,onChange:A=>U(A.target.value.slice(0,100)),maxLength:100,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: Yemen / Ethiopia"})]}),P&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Processing method",i.jsxs("select",{value:V,onChange:A=>W(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:[i.jsx("option",{value:"",children:"Select process"}),["washed","natural","honey","anaerobic","co-fermented","infused","unknown"].map(A=>i.jsx("option",{value:A,children:A},A))]})]}),D&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Tasting notes / description",i.jsx("textarea",{value:Y,onChange:A=>K(A.target.value.slice(0,200)),maxLength:200,rows:3,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: red fruits, chocolate, floral"})]}),H.length>0&&i.jsxs("fieldset",{disabled:c,children:[i.jsx("legend",{className:"text-sm font-semibold text-espresso",children:"Recipe profile"}),i.jsx("div",{className:"mt-2 grid grid-cols-2 gap-2",children:H.map(A=>{const Q=ee===A.id;return i.jsxs("button",{type:"button","aria-pressed":Q,onClick:()=>se(A.id),className:`rounded-2xl border px-3 py-2 text-left text-xs font-semibold transition ${Q?"border-espresso bg-espresso text-ivory":"border-sage/40 bg-white text-espresso"}`,children:[i.jsxs("span",{className:"block",children:[A.emoji," ",A.labelEn]}),A.labelAr&&i.jsx("span",{className:"mt-0.5 block text-[11px] opacity-70",children:A.labelAr})]},A.id)})}),ue&&i.jsx("p",{className:"mt-2 text-xs text-amber-700",children:"Check the profile if the coffee type looks different."})]}),i.jsxs("fieldset",{disabled:c,children:['
+    'placeholder:"Max 10 characters"})]}),O&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Origin",i.jsx("input",{value:L,onChange:A=>U(A.target.value.slice(0,100)),maxLength:100,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: Yemen / Ethiopia"})]}),P&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Processing method",i.jsxs("select",{value:V,onChange:A=>W(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:[i.jsx("option",{value:"",children:"Select process"}),["washed","natural","honey","anaerobic","co-fermented","infused","unknown"].map(A=>i.jsx("option",{value:A,children:A},A))]})]}),D&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Tasting notes / description",i.jsx("textarea",{value:Y,onChange:A=>K(A.target.value.slice(0,200)),maxLength:200,rows:3,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: red fruits, chocolate, floral"})]}),i.jsxs("fieldset",{disabled:c,children:['
   );
   patched = patched.replace(
     'onClick:()=>d(v.trim(),x.trim(),R)',
@@ -4586,16 +4585,16 @@ function patchRecipeStyleFrontendScript(script) {
     'const re=await Nm(C.confirmationId,X,le,I);re.cached&&sessionStorage.setItem("xbloom:cachedRecipe",re.id);o(`/recipes/${re.id}`)'
   );
   patched = patched.replace(
+    new RegExp('children:"Recipe ' + 'profile"', "g"),
+    'children:"Brew path"'
+  );
+  patched = patched.replace(
     'const Km={light:"Light Roast",medium:"Medium Roast",dark:"Dark Roast"};function ed({recipe:o,recipeId:c,readOnly:a=!1,backHref:d="/",backLabel:p="Back for a New Recipe"}){const v=o.brewMode==="cold";return',
-    'const Km={light:"Light Roast",medium:"Medium Roast",dark:"Dark Roast"};const rd={bright_clean:"Bright & fruity",bright_funky:"Funky natural",neutral_classic:"Classic balanced",dark_roasty:"Dark & roasty"};function ed({recipe:o,recipeId:c,readOnly:a=!1,backHref:d="/",backLabel:p="Back for a New Recipe"}){const v=o.brewMode==="cold",[h,x]=N.useState(o.rating??null),[S,E]=N.useState(null),[M]=N.useState(()=>{try{const b=sessionStorage.getItem("xbloom:cachedRecipe")===c;b&&sessionStorage.removeItem("xbloom:cachedRecipe");return b}catch{return!1}});async function C(b){const z=h===b?0:b;x(z===0?null:z),E(null);try{const T=await qe(`/api/recipes/${encodeURIComponent(c)}/rating`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({value:z})});x(T.rating??null)}catch(T){E(T instanceof De?T.message:"Could not save rating.")}}return'
+    'const Km={light:"Light Roast",medium:"Medium Roast",dark:"Dark Roast"};function ed({recipe:o,recipeId:c,readOnly:a=!1,backHref:d="/",backLabel:p="Back for a New Recipe"}){const v=o.brewMode==="cold",[h,x]=N.useState(o.rating??null),[S,E]=N.useState(null),[M]=N.useState(()=>{try{const b=sessionStorage.getItem("xbloom:cachedRecipe")===c;b&&sessionStorage.removeItem("xbloom:cachedRecipe");return b}catch{return!1}});async function C(b){const z=h===b?0:b;x(z===0?null:z),E(null);try{const T=await qe(`/api/recipes/${encodeURIComponent(c)}/rating`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({value:z})});x(T.rating??null)}catch(T){E(T instanceof De?T.message:"Could not save rating.")}}return'
   );
   patched = patched.replace(
     'children:v?"V60":"Hot Pour-Over"',
     'children:"V60"'
-  );
-  patched = patched.replace(
-    'i.jsx("span",{className:"text-xs text-ivory/50",children:o.machine})',
-    'i.jsxs("span",{className:"text-xs text-ivory/50",children:[o.machine,o.profile?` · ${rd[o.profile]??o.profile}`:"",o.rulesVersion?` · ${o.rulesVersion}`:""]})'
   );
   patched = patched.replace(
     'o.bean.origin&&i.jsx("p",{className:"text-ivory/70 text-sm",children:o.bean.origin})',
@@ -4603,7 +4602,7 @@ function patchRecipeStyleFrontendScript(script) {
   );
   patched = patched.replace(
     ']}),!a&&i.jsxs("section",{"aria-labelledby":"bridge-heading"',
-    ']}),!a&&i.jsxs("section",{"aria-labelledby":"rating-heading",children:[i.jsx("h2",{id:"rating-heading",className:"font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3",children:"How was the cup?"}),i.jsxs("div",{className:"bg-white rounded-card p-4 space-y-3",children:[i.jsx("p",{className:"text-sm text-espresso/70",children:"Your feedback helps calibrate this recipe profile."}),i.jsxs("div",{className:"grid grid-cols-2 gap-3",children:[i.jsx("button",{type:"button","aria-pressed":h===1,onClick:()=>C(1),className:`min-h-touch rounded-card border px-4 py-3 font-body font-semibold ${h===1?"border-sage bg-sage/20 text-espresso":"border-sage/30 text-espresso"}`,children:"👍 Good"}),i.jsx("button",{type:"button","aria-pressed":h===-1,onClick:()=>C(-1),className:`min-h-touch rounded-card border px-4 py-3 font-body font-semibold ${h===-1?"border-terracotta bg-terracotta/10 text-espresso":"border-sage/30 text-espresso"}`,children:"👎 Needs work"})]}),S&&i.jsx("p",{role:"alert",className:"text-xs text-red-700",children:S})]})]}),!a&&i.jsxs("section",{"aria-labelledby":"bridge-heading"'
+    ']}),!a&&i.jsxs("section",{"aria-labelledby":"rating-heading",children:[i.jsx("h2",{id:"rating-heading",className:"font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3",children:"How was the cup?"}),i.jsxs("div",{className:"bg-white rounded-card p-4 space-y-3",children:[i.jsx("p",{className:"text-sm text-espresso/70",children:"Your feedback helps calibrate future recipes."}),i.jsxs("div",{className:"grid grid-cols-2 gap-3",children:[i.jsx("button",{type:"button","aria-pressed":h===1,onClick:()=>C(1),className:`min-h-touch rounded-card border px-4 py-3 font-body font-semibold ${h===1?"border-sage bg-sage/20 text-espresso":"border-sage/30 text-espresso"}`,children:"👍 Good"}),i.jsx("button",{type:"button","aria-pressed":h===-1,onClick:()=>C(-1),className:`min-h-touch rounded-card border px-4 py-3 font-body font-semibold ${h===-1?"border-terracotta bg-terracotta/10 text-espresso":"border-sage/30 text-espresso"}`,children:"👎 Needs work"})]}),S&&i.jsx("p",{role:"alert",className:"text-xs text-red-700",children:S})]})]}),!a&&i.jsxs("section",{"aria-labelledby":"bridge-heading"'
   );
   return patched;
 }
