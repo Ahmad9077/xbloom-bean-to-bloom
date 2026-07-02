@@ -4143,6 +4143,7 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
     console.warn({ event: "product_enrichment_attempted", requestId });
   }
   assertEnoughBeanDataForRecommendation(enrichedBean, requestId);
+  const recipeName = buildRecipeName(username, brewMode, safeStoreName, safeBeanName);
   let recipe;
   let effectiveEngineMeta = engineMeta;
   if (env.RECIPE_ENGINE === "table") {
@@ -4223,7 +4224,6 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
       }
       throw error;
     }
-    const recipeName = buildRecipeName(username, brewMode, safeStoreName, safeBeanName);
     const { icedServing, ...recipeCore } = recommended;
     recipe = {
       ...recipeCore,
