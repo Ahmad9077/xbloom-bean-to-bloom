@@ -24,7 +24,7 @@
 - [ ] Set `RECIPE_ENGINE=table`, remove shadow flag, deploy
 - [ ] Smoke: one recipe per profile per mode end-to-end, incl. one Arabic-labeled bag and one product link
 - [ ] Verify bridge: send one new-engine recipe to xBloom via Mac bridge — recipe appears correctly in the app
-- [ ] Verify WhatsApp/service routes still create recipes
+- [ ] Verify web recipe creation and Mac bridge xBloom link creation still work
 - [ ] **Rollback if needed:** set `RECIPE_ENGINE=legacy`, redeploy (keep this path 1 week)
 - [ ] After 1 stable week: delete legacy prompt, rejection rules, old fallback engine; remove the flag
 

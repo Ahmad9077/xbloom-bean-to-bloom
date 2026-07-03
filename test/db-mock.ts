@@ -16,6 +16,7 @@ const MIGRATION_SQL = [
     "utf8",
   ),
   readFileSync(join(__dirname, "../migrations/011_bean_profile_cache.sql"), "utf8"),
+  readFileSync(join(__dirname, "../migrations/012_drop_whatsapp_user_links.sql"), "utf8"),
 ].join("\n");
 
 // ---------------------------------------------------------------------------

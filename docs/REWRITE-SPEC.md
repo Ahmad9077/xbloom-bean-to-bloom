@@ -24,7 +24,6 @@ The LLM never outputs a single recipe number. All numbers come from the versione
 - Mac bridge protocol, bridge job tables, bridge endpoints
 - Recipe history UX, recipe naming format (`Username - HotOrCold/Rostery/BeanName`)
 - Image handling policy (images still never persisted)
-- WhatsApp/service routes (they route through the same new pipeline automatically)
 
 ## 3. New/changed modules (Worker)
 

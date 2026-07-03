@@ -59,11 +59,8 @@ __export(db_exports, {
   findSession: () => findSession,
   findUserById: () => findUserById,
   findUserByNormalized: () => findUserByNormalized,
-  findWhatsAppUserLink: () => findWhatsAppUserLink,
-  findWhatsAppUserLinkByUserId: () => findWhatsAppUserLinkByUserId,
   getBridgeJobById: () => getBridgeJobById,
   getBridgeJobByRecipe: () => getBridgeJobByRecipe,
-  linkWhatsAppSenderToUser: () => linkWhatsAppSenderToUser,
   listRecipesByOwner: () => listRecipesByOwner,
   listUsersWithRecipeCounts: () => listUsersWithRecipeCounts,
   pruneLoginAttempts: () => pruneLoginAttempts,
@@ -102,20 +99,6 @@ async function createUser(db, data) {
     now,
     now
   ).run();
-}
-async function findWhatsAppUserLink(db, senderId) {
-  return db.prepare("SELECT * FROM whatsapp_user_links WHERE sender_id = ?").bind(senderId).first();
-}
-async function findWhatsAppUserLinkByUserId(db, userId) {
-  return db.prepare("SELECT * FROM whatsapp_user_links WHERE user_id = ?").bind(userId).first();
-}
-async function linkWhatsAppSenderToUser(db, data) {
-  const now = Date.now();
-  await db.prepare(
-    `INSERT INTO whatsapp_user_links
-         (sender_id, user_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?)`
-  ).bind(data.senderId, data.userId, now, now).run();
 }
 async function updateUserPassword(db, id, passwordHash) {
   const now = Date.now();
@@ -312,10 +295,11 @@ async function findBeanProfileCache(db, storeName, beanName) {
   return profileCacheRowToClassification(row);
 }
 __name(findBeanProfileCache, "findBeanProfileCache");
-async function rememberBeanProfile(db, storeName, beanName, classification) {
+async function rememberBeanProfile(db, storeName, beanName, classification, options = {}) {
   const key = beanProfileCacheKey(storeName, beanName);
   if (!key || !isValidRecipeProfile(classification?.profile)) return;
   const now = Date.now();
+  const forceUpdate = options.forceUpdate === true ? 1 : 0;
   const reasonsJson = JSON.stringify(
     Array.isArray(classification.reasons) ? classification.reasons.map((value) => String(value)).slice(0, 3) : []
   );
@@ -323,7 +307,17 @@ async function rememberBeanProfile(db, storeName, beanName, classification) {
     `INSERT INTO bean_profile_cache
        (normalized_key, store_name, bean_name, profile, roast_level, confidence, source, reasons_json, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(normalized_key) DO NOTHING`
+     ON CONFLICT(normalized_key) DO UPDATE SET
+       store_name = excluded.store_name,
+       bean_name = excluded.bean_name,
+       profile = excluded.profile,
+       roast_level = excluded.roast_level,
+       confidence = excluded.confidence,
+       source = excluded.source,
+       reasons_json = excluded.reasons_json,
+       updated_at = excluded.updated_at
+     WHERE excluded.confidence > COALESCE(bean_profile_cache.confidence, -1)
+        OR ? = 1`
   ).bind(
     key,
     storeName,
@@ -334,10 +328,45 @@ async function rememberBeanProfile(db, storeName, beanName, classification) {
     classification.source ?? "unknown",
     reasonsJson,
     now,
-    now
+    now,
+    forceUpdate
   ).run();
 }
 __name(rememberBeanProfile, "rememberBeanProfile");
+async function deleteBeanProfileCache(db, storeName, beanName) {
+  const key = beanProfileCacheKey(storeName, beanName);
+  if (!key) return 0;
+  const result = await db.prepare("DELETE FROM bean_profile_cache WHERE normalized_key = ?").bind(key).run();
+  return result.meta?.changes ?? 0;
+}
+__name(deleteBeanProfileCache, "deleteBeanProfileCache");
+async function safeFindBeanProfileCache(db, storeName, beanName, requestId, context = "recipe") {
+  try {
+    return await findBeanProfileCache(db, storeName, beanName);
+  } catch (error) {
+    console.warn({
+      event: "bean_profile_cache_read_failed",
+      requestId,
+      context,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return null;
+  }
+}
+__name(safeFindBeanProfileCache, "safeFindBeanProfileCache");
+async function safeRememberBeanProfile(db, storeName, beanName, classification, requestId, context = "recipe", options = {}) {
+  try {
+    await rememberBeanProfile(db, storeName, beanName, classification, options);
+  } catch (error) {
+    console.warn({
+      event: "bean_profile_cache_write_failed",
+      requestId,
+      context,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+__name(safeRememberBeanProfile, "safeRememberBeanProfile");
 async function listRecipesByOwner(db, ownerId) {
   const result = await db.prepare("SELECT * FROM recipes WHERE owner_id = ? ORDER BY created_at DESC").bind(ownerId).all();
   return result.results;
@@ -497,9 +526,6 @@ var init_db = __esm({
     __name(findUserById, "findUserById");
     __name(findUserByNormalized, "findUserByNormalized");
     __name(createUser, "createUser");
-    __name(findWhatsAppUserLink, "findWhatsAppUserLink");
-    __name(findWhatsAppUserLinkByUserId, "findWhatsAppUserLinkByUserId");
-    __name(linkWhatsAppSenderToUser, "linkWhatsAppSenderToUser");
     __name(updateUserPassword, "updateUserPassword");
     __name(updateUserEnabled, "updateUserEnabled");
     __name(updateUserRole, "updateUserRole");
@@ -1160,6 +1186,28 @@ async function handleDeleteUser(request, env, requestId, targetId) {
   });
 }
 __name(handleDeleteUser, "handleDeleteUser");
+async function handleDeleteBeanProfileCache(request, env, requestId) {
+  enforceSameOrigin(request);
+  await requireAdmin(request, env);
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    throw new ClientError("Expected JSON body");
+  }
+  const obj = asObject(body);
+  const storeName = sanitizeModelString(stringField(obj, "storeName"), 100);
+  const beanName = sanitizeModelString(stringField(obj, "beanName"), 100);
+  if (!storeName || !beanName) {
+    throw new ClientError("storeName and beanName are required");
+  }
+  const deleted = await deleteBeanProfileCache(env.DB, storeName, beanName);
+  return new Response(JSON.stringify({ ok: true, requestId, deleted }), {
+    status: 200,
+    headers: { "Content-Type": "application/json;charset=UTF-8" }
+  });
+}
+__name(handleDeleteBeanProfileCache, "handleDeleteBeanProfileCache");
 function asObject(v) {
   if (typeof v !== "object" || v === null || Array.isArray(v)) {
     throw new ClientError("Request body must be a JSON object");
@@ -2726,43 +2774,6 @@ function parseShareLink(value) {
   return url.toString();
 }
 __name(parseShareLink, "parseShareLink");
-
-// src/auth/service-token.ts
-async function requireServiceTokenAuth(request, expectedTokenHash) {
-  const expected = parseHexDigest(expectedTokenHash);
-  if (!expected) {
-    throw new UnauthorizedError("Unauthorized");
-  }
-  const authHeader = request.headers.get("Authorization");
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!token) {
-    throw new UnauthorizedError("Unauthorized");
-  }
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  if (!constantTimeBytesEqual(new Uint8Array(digest), expected)) {
-    throw new UnauthorizedError("Unauthorized");
-  }
-}
-__name(requireServiceTokenAuth, "requireServiceTokenAuth");
-function parseHexDigest(value) {
-  if (!value || !/^[0-9a-f]{64}$/i.test(value)) return null;
-  const bytes = new Uint8Array(32);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = Number.parseInt(value.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
-}
-__name(parseHexDigest, "parseHexDigest");
-function constantTimeBytesEqual(a, b) {
-  let diff = a.length ^ b.length;
-  const length = Math.max(a.length, b.length);
-  for (let i = 0; i < length; i++) {
-    diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
-  }
-  return diff === 0;
-}
-__name(constantTimeBytesEqual, "constantTimeBytesEqual");
-
 // src/routes/recipes.ts
 init_db();
 
@@ -3537,7 +3548,6 @@ __name(verifyTurnstile, "verifyTurnstile");
 var RECIPE_PATH_PREFIX = "/recipes/";
 var CONFIRMED_STORE_NAME_MAX_CHARS = 40;
 var CONFIRMED_BEAN_NAME_MAX_CHARS = 60;
-var SERVICE_JSON_BODY_MAX_BYTES = 1e4;
 async function handleFromImages(request, env, requestId) {
   enforceSameOrigin(request);
   const ctx = await requireAuth(request, env);
@@ -3596,7 +3606,13 @@ async function handleFromImages(request, env, requestId) {
   const publicBean = hasImages ? discardVisionNames(extractedBean) : extractedBean;
   let classification;
   try {
-    classification = await findBeanProfileCache(env.DB, extractedBean.storeName, extractedBean.beanName) ?? await chooseRecipeProfile(extractedBean, env);
+    classification = await safeFindBeanProfileCache(
+      env.DB,
+      extractedBean.storeName,
+      extractedBean.beanName,
+      requestId,
+      "scan"
+    ) ?? await chooseRecipeProfile(extractedBean, env);
   } catch (error) {
     console.warn({
       event: "recipe_profile_prefill_failed",
@@ -3672,7 +3688,7 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
     throw new ClientError("Rostery/Caf\xE9 and bean name are required");
   }
   const manualOrigin = parseOptionalSanitizedString(input.origin, "origin", 100);
-  const manualProcessingMethod = parseOptionalSanitizedString(input.processingMethod, "processingMethod", 100);
+  const manualProcessingMethod = parseOptionalProcessingMethod(input.processingMethod);
   const manualDescription = parseOptionalSanitizedString(input.description, "description", 200);
   const preferences = parseRecipePreferences(input);
   const pending = await findPendingRecipeConfirmation(env.DB, input.confirmationId, ctx.userId);
@@ -3703,10 +3719,41 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
     flavors: manualDescription && extracted.flavors.length === 0 ? splitManualFlavorNotes(manualDescription) : extracted.flavors
   };
   assertEnoughBeanDataForRecommendation(confirmedBean, requestId);
-  const cachedClassification = await findBeanProfileCache(env.DB, storeName, beanName);
-  const classification = cachedClassification ?? await chooseRecipeProfile(confirmedBean, env);
+  const cachedClassification = await safeFindBeanProfileCache(
+    env.DB,
+    storeName,
+    beanName,
+    requestId,
+    "confirmation"
+  );
+  let profileCacheRefresh = null;
+  let classification = cachedClassification;
+  if (cachedClassification && cachedClassification.roastLevel !== confirmedBean.roastLevel) {
+    profileCacheRefresh = {
+      reasons: ["confirmed roast level changed"]
+    };
+    const reclassified = await chooseRecipeProfile(confirmedBean, env);
+    classification = {
+      ...reclassified,
+      reasons: [
+        ...profileCacheRefresh.reasons,
+        ...(Array.isArray(reclassified.reasons) ? reclassified.reasons : [])
+      ].slice(0, 3)
+    };
+  }
+  if (!classification) {
+    classification = await chooseRecipeProfile(confirmedBean, env);
+  }
   const chosenProfile = isValidRecipeProfile(classification.profile) ? classification.profile : DEFAULT_RECIPE_PROFILE;
-  await rememberBeanProfile(env.DB, storeName, beanName, classification);
+  await safeRememberBeanProfile(
+    env.DB,
+    storeName,
+    beanName,
+    classification,
+    requestId,
+    "confirmation",
+    { forceUpdate: profileCacheRefresh !== null }
+  );
   const targets = resolveRecipeTargets(pending.brew_mode, preferences);
   const rulesVersion = RECIPE_RULES_VERSION;
   const fingerprint = await recipeFingerprint({
@@ -3745,8 +3792,6 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
       preferences,
       pending.id,
       { storeName: extracted.storeName, beanName: extracted.beanName },
-      "web",
-      false,
       { profile: chosenProfile, rulesVersion, fingerprint },
       executionCtx
     );
@@ -3788,239 +3833,12 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
   }
 }
 __name(handleFromConfirmation, "handleFromConfirmation");
-async function handleBridgeRecipeFromBean(request, env, requestId, executionCtx) {
-  await requireServiceTokenAuth(request, env.WHATSAPP_RECIPE_TOKEN_HASH);
-  const input = await readServiceJsonObject(request);
-  const senderId = parseWhatsAppSenderId(input.senderId);
-  const sanitizedBean = parseBridgeBeanMetadata(input.bean);
-  const brewMode = parseJsonBrewMode(input.brewMode);
-  const preferencesInput = input.preferences && typeof input.preferences === "object" && !Array.isArray(input.preferences) ? input.preferences : {};
-  const preferences = parseRecipePreferences(preferencesInput);
-  validateRecipePreferencesForMode(preferences, brewMode);
-  const owner = await resolveWhatsAppRecipeOwner(env, senderId);
-  return generateAndStoreRecipe(
-    env,
-    requestId,
-    owner.id,
-    owner.username_display,
-    sanitizedBean,
-    brewMode,
-    preferences,
-    void 0,
-    parseBridgeSearchHints(input.searchHints),
-    "whatsapp",
-    true,
-    null,
-    executionCtx
-  );
-}
-__name(handleBridgeRecipeFromBean, "handleBridgeRecipeFromBean");
-async function handleBridgeRecipeFromUpload(request, env, requestId, executionCtx) {
-  await requireServiceTokenAuth(request, env.WHATSAPP_RECIPE_TOKEN_HASH);
-  let formData;
-  try {
-    formData = await request.formData();
-  } catch {
-    throw new ClientError("Could not parse multipart/form-data body");
-  }
-  const senderId = parseWhatsAppSenderId(formData.get("senderId"));
-  const brewMode = parseJsonBrewMode(formData.get("brewMode"));
-  const owner = await resolveWhatsAppRecipeOwner(env, senderId);
-  const productUrl = parseServiceProductUrl(formData.get("productUrl"));
-  const preferences = parseServicePreferences(formData.get("preferences"));
-  validateRecipePreferencesForMode(preferences, brewMode);
-  const hasImages = hasImageFields2(formData);
-  if (!hasImages && !productUrl) {
-    throw new ClientError("A bean photo or product link is required");
-  }
-  const bean = hasImages ? await extractBeanMetadata(await extractImagesFromFormData(formData), env) : await extractBeanMetadataFromProductUrl(productUrl, env);
-  const sanitizedBean = sanitizeBeanMetadata(bean);
-  const missingFields = missingRequiredBeanDetails(sanitizedBean);
-  if (missingFields.length) {
-    throw new ValidationError(`Missing bean details: ${missingFields.join(", ")}`);
-  }
-  return generateAndStoreRecipe(
-    env,
-    requestId,
-    owner.id,
-    owner.username_display,
-    sanitizedBean,
-    brewMode,
-    preferences,
-    void 0,
-    {},
-    "whatsapp",
-    true,
-    null,
-    executionCtx
-  );
-}
-__name(handleBridgeRecipeFromUpload, "handleBridgeRecipeFromUpload");
-async function handleBridgeLinkWhatsAppUser(request, env, requestId) {
-  await requireServiceTokenAuth(request, env.WHATSAPP_RECIPE_TOKEN_HASH);
-  const input = await readServiceJsonObject(request);
-  const senderId = parseWhatsAppSenderId(input.senderId);
-  const username = parseOptionalSanitizedString(input.username, "username", 100);
-  const userId = parseOptionalSanitizedString(input.userId, "userId", 100);
-  if (!username && !userId) throw new ClientError("username or userId is required");
-  const user = userId ? await findUserById(env.DB, userId) : await findUserByNormalized(env.DB, username.toLowerCase());
-  if (!user || user.enabled !== 1) throw new NotFoundError("User not found");
-  const existingSenderLink = await findWhatsAppUserLink(env.DB, senderId);
-  if (existingSenderLink && existingSenderLink.user_id !== user.id) {
-    throw new ConflictError("WhatsApp number is already linked to another user");
-  }
-  const existingUserLink = await findWhatsAppUserLinkByUserId(env.DB, user.id);
-  if (existingUserLink && existingUserLink.sender_id !== senderId) {
-    throw new ConflictError("User is already linked to another WhatsApp number");
-  }
-  if (!existingSenderLink) {
-    await linkWhatsAppSenderToUser(env.DB, { senderId, userId: user.id });
-  }
-  return new Response(
-    JSON.stringify({
-      ok: true,
-      requestId,
-      link: {
-        senderId,
-        user: { id: user.id, username: user.username_display, role: user.role }
-      }
-    }),
-    { status: 200, headers: { "Content-Type": "application/json;charset=UTF-8" } }
-  );
-}
-__name(handleBridgeLinkWhatsAppUser, "handleBridgeLinkWhatsAppUser");
-async function handleBridgeRecipeLinkStatus(request, env, requestId, recipeId) {
-  await requireServiceTokenAuth(request, env.WHATSAPP_RECIPE_TOKEN_HASH);
-  const job = await getBridgeJobByRecipe(env.DB, recipeId);
-  if (!job) throw new NotFoundError("No xBloom link job for this recipe");
-  return new Response(JSON.stringify({ ok: true, requestId, job: serializeRecipeBridgeJob(job) }), {
-    status: 200,
-    headers: { "Content-Type": "application/json;charset=UTF-8" }
-  });
-}
-__name(handleBridgeRecipeLinkStatus, "handleBridgeRecipeLinkStatus");
-async function resolveWhatsAppRecipeOwner(env, senderId) {
-  const ownerSenderId = parseConfiguredSenderId(env.WHATSAPP_OWNER_SENDER_ID);
-  if (ownerSenderId && senderId === ownerSenderId) {
-    const adminOwnerId = env.WHATSAPP_OWNER_USER_ID;
-    if (!adminOwnerId) throw new UnauthorizedError("Unauthorized");
-    const admin = await findUserById(env.DB, adminOwnerId);
-    if (!admin || admin.enabled !== 1 || admin.role !== "admin") {
-      throw new UnauthorizedError("Unauthorized");
-    }
-    return admin;
-  }
-  const existingLink = await findWhatsAppUserLink(env.DB, senderId);
-  if (existingLink) {
-    const linkedUser = await findUserById(env.DB, existingLink.user_id);
-    if (!linkedUser || linkedUser.enabled !== 1) throw new UnauthorizedError("Unauthorized");
-    return linkedUser;
-  }
-  throw new UnauthorizedError("WhatsApp number is not linked to a Bean to Bloom user");
-}
-__name(resolveWhatsAppRecipeOwner, "resolveWhatsAppRecipeOwner");
-function parseWhatsAppSenderId(input) {
-  if (typeof input !== "string") throw new ClientError("senderId is required");
-  const senderId = input.replace(/[^\d]/g, "");
-  if (senderId.length < 8 || senderId.length > 15) throw new ClientError("Invalid senderId");
-  return senderId;
-}
-__name(parseWhatsAppSenderId, "parseWhatsAppSenderId");
-function parseConfiguredSenderId(input) {
-  if (typeof input !== "string") return "";
-  const senderId = input.replace(/[^\d]/g, "");
-  return senderId.length >= 8 && senderId.length <= 15 ? senderId : "";
-}
-__name(parseConfiguredSenderId, "parseConfiguredSenderId");
-function parseBridgeBeanMetadata(input) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new ClientError('"bean" must be an object');
-  }
-  const bean = input;
-  const storeName = parseSanitizedString(bean.storeName, "bean.storeName", 100);
-  const beanName = parseSanitizedString(bean.beanName, "bean.beanName", 100);
-  if (!storeName || !beanName) {
-    throw new ClientError("bean.storeName and bean.beanName are required");
-  }
-  return {
-    storeName,
-    beanName,
-    coffeeType: parseOptionalSanitizedString(bean.coffeeType, "bean.coffeeType", 100),
-    variety: parseOptionalSanitizedString(bean.variety, "bean.variety", 100),
-    origin: parseOptionalSanitizedString(bean.origin, "bean.origin", 100),
-    processingMethod: parseOptionalSanitizedString(
-      bean.processingMethod,
-      "bean.processingMethod",
-      100
-    ),
-    roastLevel: parseBridgeRoastLevel(bean.roastLevel),
-    flavors: parseBridgeFlavors(bean.flavors),
-    description: parseOptionalSanitizedString(bean.description, "bean.description", 200)
-  };
-}
-__name(parseBridgeBeanMetadata, "parseBridgeBeanMetadata");
-function parseBridgeRoastLevel(input) {
-  if (input === void 0 || input === null || input === "") return "unknown";
-  if (typeof input === "string" && ROAST_LEVELS2.includes(input)) return input;
-  throw new ClientError("bean.roastLevel must be light, medium_light, medium, medium_dark, dark, or unknown");
-}
-__name(parseBridgeRoastLevel, "parseBridgeRoastLevel");
-function parseBridgeFlavors(input) {
-  if (input === void 0 || input === null || input === "") return [];
-  const values = typeof input === "string" ? input.split(",") : input;
-  if (!Array.isArray(values)) {
-    throw new ClientError("bean.flavors must be an array of text values");
-  }
-  return values.map((value) => {
-    if (typeof value !== "string") throw new ClientError("bean.flavors must contain text only");
-    return sanitizeModelString(value.trim(), 50);
-  }).filter(Boolean).slice(0, 20);
-}
-__name(parseBridgeFlavors, "parseBridgeFlavors");
-function parseJsonBrewMode(input) {
-  if (input === "cold" || input === "hot") return input;
-  throw new ClientError('brewMode is required and must be "cold" or "hot"');
-}
-__name(parseJsonBrewMode, "parseJsonBrewMode");
-function parseServiceProductUrl(input) {
-  if (input === void 0 || input === null || input === "") return null;
-  if (typeof input !== "string") throw new ClientError('"productUrl" must be a text value');
-  const value = input.trim();
-  if (!value) return null;
-  if (value.length > 2048) throw new ClientError("Product link is too long");
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new ClientError("Product link must be a valid URL");
-  }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new ClientError("Product link must be http or https");
-  }
-  return url.toString();
-}
-__name(parseServiceProductUrl, "parseServiceProductUrl");
-function parseServicePreferences(input) {
-  if (input === void 0 || input === null || input === "") return {};
-  if (typeof input !== "string") throw new ClientError('"preferences" must be JSON text');
-  let parsed;
-  try {
-    parsed = JSON.parse(input);
-  } catch {
-    throw new ClientError('"preferences" must be valid JSON');
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new ClientError('"preferences" must be an object');
-  }
-  return parseRecipePreferences(parsed);
-}
-__name(parseServicePreferences, "parseServicePreferences");
 function missingRequiredBeanDetails(bean) {
   const missing = [];
   if (!bean.storeName) missing.push("storeName");
   if (!bean.beanName) missing.push("beanName");
   if (!bean.origin) missing.push("origin");
-  if (!bean.processingMethod) missing.push("processingMethod");
+  if (!hasKnownProcessingMethod(bean.processingMethod)) missing.push("processingMethod");
   if (!bean.description && bean.flavors.length === 0) missing.push("flavors or description");
   return missing;
 }
@@ -4030,7 +3848,7 @@ function missingConfirmationBeanFields(bean) {
   if (!bean.storeName) missing.push("storeName");
   if (!bean.beanName) missing.push("beanName");
   if (!bean.origin) missing.push("origin");
-  if (!bean.processingMethod) missing.push("processingMethod");
+  if (!hasKnownProcessingMethod(bean.processingMethod)) missing.push("processingMethod");
   if (bean.roastLevel === "unknown") missing.push("roastLevel");
   if (!bean.description && bean.flavors.length === 0) missing.push("description");
   return missing;
@@ -4043,7 +3861,7 @@ __name(splitManualFlavorNotes, "splitManualFlavorNotes");
 function missingRecommendationBasisDetails(bean) {
   const missing = [];
   if (!bean.origin) missing.push("origin");
-  if (!bean.processingMethod) missing.push("processing method");
+  if (!hasKnownProcessingMethod(bean.processingMethod)) missing.push("processing method");
   if (bean.roastLevel === "unknown") missing.push("roast level");
   if (!bean.description && bean.flavors.length === 0) missing.push("tasting notes or description");
   return missing;
@@ -4062,43 +3880,6 @@ function assertEnoughBeanDataForRecommendation(bean, requestId) {
   );
 }
 __name(assertEnoughBeanDataForRecommendation, "assertEnoughBeanDataForRecommendation");
-async function readServiceJsonObject(request) {
-  const contentType = request.headers.get("Content-Type") ?? "";
-  if (!contentType.toLowerCase().includes("application/json")) {
-    throw new UnsupportedMediaError("Content-Type must be application/json");
-  }
-  const contentLength = request.headers.get("Content-Length");
-  if (contentLength !== null && Number(contentLength) > SERVICE_JSON_BODY_MAX_BYTES) {
-    throw new PayloadTooLargeError("Request body is too large");
-  }
-  const rawBody = await request.text();
-  if (new TextEncoder().encode(rawBody).byteLength > SERVICE_JSON_BODY_MAX_BYTES) {
-    throw new PayloadTooLargeError("Request body is too large");
-  }
-  let body;
-  try {
-    body = JSON.parse(rawBody);
-  } catch {
-    throw new ClientError("Request body must be valid JSON");
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw new ClientError("Request body must be an object");
-  }
-  return body;
-}
-__name(readServiceJsonObject, "readServiceJsonObject");
-function parseBridgeSearchHints(input) {
-  if (input === void 0 || input === null) return {};
-  if (typeof input !== "object" || Array.isArray(input)) {
-    throw new ClientError('"searchHints" must be an object');
-  }
-  const hints = input;
-  return {
-    storeName: parseOptionalSanitizedString(hints.storeName, "searchHints.storeName", 100),
-    beanName: parseOptionalSanitizedString(hints.beanName, "searchHints.beanName", 100)
-  };
-}
-__name(parseBridgeSearchHints, "parseBridgeSearchHints");
 function parseSanitizedString(input, field, maxLen) {
   if (typeof input !== "string") throw new ClientError(`${field} must be text`);
   return sanitizeModelString(input, maxLen);
@@ -4109,6 +3890,16 @@ function parseOptionalSanitizedString(input, field, maxLen) {
   return parseSanitizedString(input, field, maxLen);
 }
 __name(parseOptionalSanitizedString, "parseOptionalSanitizedString");
+function parseOptionalProcessingMethod(input) {
+  const value = parseOptionalSanitizedString(input, "processingMethod", 100);
+  if (!value) return "";
+  return value.trim().toLowerCase() === "unknown" ? "" : value;
+}
+__name(parseOptionalProcessingMethod, "parseOptionalProcessingMethod");
+function hasKnownProcessingMethod(value) {
+  return typeof value === "string" && value.trim().length > 0 && value.trim().toLowerCase() !== "unknown";
+}
+__name(hasKnownProcessingMethod, "hasKnownProcessingMethod");
 function sanitizeBeanMetadata(bean) {
   return {
     storeName: sanitizeModelString(bean.storeName, 100),
@@ -4205,7 +3996,7 @@ async function logRecipeShadow({
   }
 }
 __name(logRecipeShadow, "logRecipeShadow");
-async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitizedBean, brewMode, preferences, confirmationId, searchHints = {}, source = "web", createXBloomLinkJob = false, engineMeta = null, executionCtx = null) {
+async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitizedBean, brewMode, preferences, confirmationId, searchHints = {}, engineMeta = null, executionCtx = null) {
   if (env.RECIPE_ENGINE !== "table") {
     throw new InternalError('RECIPE_ENGINE must be "table"');
   }
@@ -4326,7 +4117,7 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
     storeName: safeStoreName,
     beanName: safeBeanName,
     recipeJson: JSON.stringify(recipe),
-    source,
+    source: "web",
     profile: effectiveEngineMeta?.profile ?? null,
     rulesVersion: effectiveEngineMeta?.rulesVersion ?? null,
     fingerprint: effectiveEngineMeta?.fingerprint ?? null
@@ -4339,11 +4130,6 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
   } else {
     await storeRecipe(env.DB, recipeData);
   }
-  const xBloomJob = createXBloomLinkJob ? await createBridgeJobIfAbsent(env.DB, {
-    id: crypto.randomUUID(),
-    recipeId,
-    ownerId
-  }) : null;
   return recipeResponse(
     requestId,
     recipeId,
@@ -4354,8 +4140,7 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
       ...(effectiveEngineMeta ? {
         profile: effectiveEngineMeta.profile,
         rulesVersion: effectiveEngineMeta.rulesVersion
-      } : {}),
-      ...(xBloomJob ? { xBloomJob: serializeRecipeBridgeJob(xBloomJob) } : {})
+      } : {})
     }
   );
 }
@@ -4623,7 +4408,7 @@ function secureApiResponse(response) {
   });
 }
 __name(secureApiResponse, "secureApiResponse");
-var TASTE_STYLE_FRONTEND_VERSION = "phase3-system-profile-roast-required-20260703";
+var TASTE_STYLE_FRONTEND_VERSION = "phase3-profile-cache-whatsapp-removed-20260703";
 function patchRecipeStyleFrontendScript(script) {
   let patched = script;
   patched = patched.replace(
@@ -4637,16 +4422,16 @@ function patchRecipeStyleFrontendScript(script) {
   const componentStart = patched.indexOf('function fh(');
   const componentEnd = componentStart >= 0 ? patched.indexOf('const ph=', componentStart) : -1;
   if (componentStart >= 0 && componentEnd > componentStart) {
-    const replacement = 'function fh({confirmation:o,submitting:c,error:a,onConfirm:d,onCancel:p}){const[v,h]=N.useState(Xl(o.bean.storeName,ai)),[x,S]=N.useState(Xl(o.bean.beanName,ui)),E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?255:300,[b,z]=N.useState(C),m=new Set(Array.isArray(o.missingFields)?o.missingFields:[]),F=o.bean||{},O=m.has("origin"),P=m.has("processingMethod"),D=m.has("description")||m.has("flavors")||m.has("flavors or description"),[L,U]=N.useState(F.origin||""),[V,W]=N.useState(F.processingMethod||""),[Y,K]=N.useState((Array.isArray(F.flavors)&&F.flavors.length?F.flavors.join(", "):F.description)||""),ro=[["unknown","Unknown"],["light","Light"],["medium_light","Medium-light"],["medium","Medium"],["medium_dark","Medium-dark"],["dark","Dark"]],[rl,setRl]=N.useState(ro.some(A=>A[0]===F.roastLevel)?F.roastLevel:"unknown"),J=Array.isArray(o.profileOptions)?o.profileOptions:[],ee=o.suggestedProfile||"neutral_classic";function oe(A){const Q=J.find(G=>G.id===A);return Q?`${Q.emoji||"☕"} ${Q.labelEn||Q.id}`:A}const Z=rl!=="unknown",B=v.trim().length>0&&x.trim().length>0&&(!O||L.trim().length>0)&&(!P||V.trim().length>0)&&(!D||Y.trim().length>0)&&Z;function R(){const A=b!==null?{finalDrinkMl:b}:{};O&&(A.origin=L.trim());P&&(A.processingMethod=V.trim());D&&(A.description=Y.trim());A.roastLevel=rl;return A}return i.jsx("div",{className:"fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/45 px-4 py-6",role:"presentation",children:i.jsxs("dialog",{open:!0,"aria-labelledby":"bean-confirmation-title",className:"max-h-[92vh] w-full max-w-md overflow-y-auto rounded-card bg-ivory p-6 shadow-2xl",children:[i.jsx("h2",{id:"bean-confirmation-title",className:"font-heading text-3xl text-espresso",children:"Confirm Below Details"}),i.jsxs("div",{className:"mt-5 space-y-4",children:[i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Rostery/Café",i.jsx("input",{value:v,onChange:A=>h(Xl(A.target.value,ai)),maxLength:ai,disabled:c,className:`mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal\n                         text-espresso focus-visible:outline-2 focus-visible:outline-terracotta`,placeholder:"Max 40 characters"})]}),i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Bean name",i.jsx("input",{value:x,onChange:A=>S(Xl(A.target.value,ui)),maxLength:ui,disabled:c,className:`mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal\n                         text-espresso focus-visible:outline-2 focus-visible:outline-terracotta`,placeholder:"Max 60 characters"})]}),O&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Origin",i.jsx("input",{value:L,onChange:A=>U(A.target.value.slice(0,100)),maxLength:100,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: Yemen / Ethiopia"})]}),P&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Processing method",i.jsxs("select",{value:V,onChange:A=>W(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:[i.jsx("option",{value:"",children:"Select process"}),["washed","natural","honey","anaerobic","co-fermented","infused","unknown"].map(A=>i.jsx("option",{value:A,children:A},A))]})]}),D&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Tasting notes / description",i.jsx("textarea",{value:Y,onChange:A=>K(A.target.value.slice(0,200)),maxLength:200,rows:3,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: red fruits, chocolate, floral"})]}),i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Roast level",i.jsx("select",{value:rl,onChange:A=>setRl(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:ro.map(A=>i.jsx("option",{value:A[0],children:A[1]},A[0]))}),rl==="unknown"&&i.jsx("p",{className:"mt-2 text-xs text-red-700",children:"Select the roast level before creating the recipe."})]}),J.length>0&&i.jsxs("div",{className:"rounded-card border border-sage/30 bg-white p-3",children:[i.jsx("p",{className:"text-sm font-semibold text-espresso",children:"Brew profile"}),i.jsxs("p",{className:"mt-2 inline-flex rounded-full bg-sage/10 px-3 py-1 text-xs font-semibold text-sage",children:["Detected: ",oe(ee)]}),i.jsx("p",{className:"mt-2 text-xs text-sage",children:"Chosen automatically from the confirmed bean details."})]}),i.jsxs("fieldset",{disabled:c,children:[i.jsx("legend",{className:"text-sm font-semibold text-espresso",children:"Total Drink ml"}),i.jsx("div",{className:"mt-2 grid grid-cols-5 gap-2",children:E.map(A=>{const Q=b===A;return i.jsx("button",{type:"button","aria-pressed":Q,onClick:()=>z(A),className:`min-h-touch rounded-2xl border px-2 py-2 text-sm font-semibold transition\n                      ${Q?"border-espresso bg-espresso text-ivory":"border-sage/40 bg-white text-espresso"}`,children:A},A)})})]}),a&&i.jsx("p",{role:"alert",className:"mt-4 text-sm text-red-700",children:a}),i.jsxs("div",{className:"mt-6 space-y-3",children:[i.jsx("button",{type:"button",disabled:!B||c,onClick:()=>d(v.trim(),x.trim(),R()),className:`w-full min-h-touch rounded-card bg-espresso px-4 py-3 font-semibold text-ivory\n                       disabled:cursor-not-allowed disabled:opacity-40`,children:c?"Creating recipe…":"Confirm and create recipe"}),i.jsx("button",{type:"button",disabled:c,onClick:p,className:`w-full min-h-touch rounded-card border border-sage/50 px-4 py-3 font-semibold\n                       text-espresso disabled:opacity-40`,children:"Cancel"})]})]})]})})}';
+    const replacement = 'function fh({confirmation:o,submitting:c,error:a,onConfirm:d,onCancel:p}){const[v,h]=N.useState(Xl(o.bean.storeName,ai)),[x,S]=N.useState(Xl(o.bean.beanName,ui)),E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?255:300,[b,z]=N.useState(C),m=new Set(Array.isArray(o.missingFields)?o.missingFields:[]),F=o.bean||{},O=m.has("origin"),P=m.has("processingMethod"),D=m.has("description")||m.has("flavors")||m.has("flavors or description"),[L,U]=N.useState(F.origin||""),[V,W]=N.useState(F.processingMethod||""),[Y,K]=N.useState((Array.isArray(F.flavors)&&F.flavors.length?F.flavors.join(", "):F.description)||""),ro=[["unknown","Unknown"],["light","Light"],["medium_light","Medium-light"],["medium","Medium"],["medium_dark","Medium-dark"],["dark","Dark"]],[rl,setRl]=N.useState(ro.some(A=>A[0]===F.roastLevel)?F.roastLevel:"unknown"),J=Array.isArray(o.profileOptions)?o.profileOptions:[],ee=o.suggestedProfile||"neutral_classic";function oe(A){const Q=J.find(G=>G.id===A);return Q?`${Q.emoji||"☕"} ${Q.labelEn||Q.id}`:A}const Z=rl!=="unknown",B=v.trim().length>0&&x.trim().length>0&&(!O||L.trim().length>0)&&(!P||V.trim().length>0)&&(!D||Y.trim().length>0)&&Z;function R(){const A=b!==null?{finalDrinkMl:b}:{};O&&(A.origin=L.trim());P&&V.trim()&&(A.processingMethod=V.trim());D&&(A.description=Y.trim());A.roastLevel=rl;return A}return i.jsx("div",{className:"fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/45 px-4 py-6",role:"presentation",children:i.jsxs("dialog",{open:!0,"aria-labelledby":"bean-confirmation-title",className:"max-h-[92vh] w-full max-w-md overflow-y-auto rounded-card bg-ivory p-6 shadow-2xl",children:[i.jsx("h2",{id:"bean-confirmation-title",className:"font-heading text-3xl text-espresso",children:"Confirm Below Details"}),i.jsxs("div",{className:"mt-5 space-y-4",children:[i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Rostery/Café",i.jsx("input",{value:v,onChange:A=>h(Xl(A.target.value,ai)),maxLength:ai,disabled:c,className:`mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal\n                         text-espresso focus-visible:outline-2 focus-visible:outline-terracotta`,placeholder:"Max 40 characters"})]}),i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Bean name",i.jsx("input",{value:x,onChange:A=>S(Xl(A.target.value,ui)),maxLength:ui,disabled:c,className:`mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal\n                         text-espresso focus-visible:outline-2 focus-visible:outline-terracotta`,placeholder:"Max 60 characters"})]}),O&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Origin",i.jsx("input",{value:L,onChange:A=>U(A.target.value.slice(0,100)),maxLength:100,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: Yemen / Ethiopia"})]}),P&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Processing method",i.jsxs("select",{value:V,onChange:A=>W(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:[i.jsx("option",{value:"",children:"Select process"}),i.jsx("option",{value:"",children:"unknown"}),["washed","natural","honey","anaerobic","co-fermented","infused"].map(A=>i.jsx("option",{value:A,children:A},A))]})]}),D&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Tasting notes / description",i.jsx("textarea",{value:Y,onChange:A=>K(A.target.value.slice(0,200)),maxLength:200,rows:3,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: red fruits, chocolate, floral"})]}),i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Roast level",i.jsx("select",{value:rl,onChange:A=>setRl(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:ro.map(A=>i.jsx("option",{value:A[0],children:A[1]},A[0]))}),rl==="unknown"&&i.jsx("p",{className:"mt-2 text-xs text-red-700",children:"Select the roast level before creating the recipe."})]}),J.length>0&&i.jsxs("div",{className:"rounded-card border border-sage/30 bg-white p-3",children:[i.jsx("p",{className:"text-sm font-semibold text-espresso",children:"Brew profile"}),i.jsxs("p",{className:"mt-2 inline-flex rounded-full bg-sage/10 px-3 py-1 text-xs font-semibold text-sage",children:["Preliminary guess: ",oe(ee)]}),i.jsx("p",{className:"mt-2 text-xs text-sage",children:"Final profile is chosen after you confirm the bean details."})]}),i.jsxs("fieldset",{disabled:c,children:[i.jsx("legend",{className:"text-sm font-semibold text-espresso",children:"Total Drink ml"}),i.jsx("div",{className:"mt-2 grid grid-cols-5 gap-2",children:E.map(A=>{const Q=b===A;return i.jsx("button",{type:"button","aria-pressed":Q,onClick:()=>z(A),className:`min-h-touch rounded-2xl border px-2 py-2 text-sm font-semibold transition\n                      ${Q?"border-espresso bg-espresso text-ivory":"border-sage/40 bg-white text-espresso"}`,children:A},A)})})]}),a&&i.jsx("p",{role:"alert",className:"mt-4 text-sm text-red-700",children:a}),i.jsxs("div",{className:"mt-6 space-y-3",children:[i.jsx("button",{type:"button",disabled:!B||c,onClick:()=>d(v.trim(),x.trim(),R()),className:`w-full min-h-touch rounded-card bg-espresso px-4 py-3 font-semibold text-ivory\n                       disabled:cursor-not-allowed disabled:opacity-40`,children:c?"Creating recipe…":"Confirm and create recipe"}),i.jsx("button",{type:"button",disabled:c,onClick:p,className:`w-full min-h-touch rounded-card border border-sage/50 px-4 py-3 font-semibold\n                       text-espresso disabled:opacity-40`,children:"Cancel"})]})]})]})})}';
     patched = patched.slice(0, componentStart) + replacement + patched.slice(componentEnd);
   }
   patched = patched.replace(
     'E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?255:300,[b,z]=N.useState(C),B=v.trim().length>0&&x.trim().length>0,R=b!==null?{finalDrinkMl:b}:{};return',
-    'E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?255:300,[b,z]=N.useState(C),m=new Set(Array.isArray(o.missingFields)?o.missingFields:[]),F=o.bean||{},O=m.has("origin"),P=m.has("processingMethod"),D=m.has("description")||m.has("flavors")||m.has("flavors or description"),[L,U]=N.useState(F.origin||""),[V,W]=N.useState(F.processingMethod||""),[Y,K]=N.useState((Array.isArray(F.flavors)&&F.flavors.length?F.flavors.join(", "):F.description)||""),B=v.trim().length>0&&x.trim().length>0&&(!O||L.trim().length>0)&&(!P||V.trim().length>0)&&(!D||Y.trim().length>0);function R(){const A=b!==null?{finalDrinkMl:b}:{};O&&(A.origin=L.trim());P&&(A.processingMethod=V.trim());D&&(A.description=Y.trim());return A}return'
+    'E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?255:300,[b,z]=N.useState(C),m=new Set(Array.isArray(o.missingFields)?o.missingFields:[]),F=o.bean||{},O=m.has("origin"),P=m.has("processingMethod"),D=m.has("description")||m.has("flavors")||m.has("flavors or description"),[L,U]=N.useState(F.origin||""),[V,W]=N.useState(F.processingMethod||""),[Y,K]=N.useState((Array.isArray(F.flavors)&&F.flavors.length?F.flavors.join(", "):F.description)||""),B=v.trim().length>0&&x.trim().length>0&&(!O||L.trim().length>0)&&(!P||V.trim().length>0)&&(!D||Y.trim().length>0);function R(){const A=b!==null?{finalDrinkMl:b}:{};O&&(A.origin=L.trim());P&&V.trim()&&(A.processingMethod=V.trim());D&&(A.description=Y.trim());return A}return'
   );
   patched = patched.replace(
     'placeholder:"Max 10 characters"})]}),i.jsxs("fieldset",{disabled:c,children:[',
-    'placeholder:"Max 10 characters"})]}),O&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Origin",i.jsx("input",{value:L,onChange:A=>U(A.target.value.slice(0,100)),maxLength:100,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: Yemen / Ethiopia"})]}),P&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Processing method",i.jsxs("select",{value:V,onChange:A=>W(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:[i.jsx("option",{value:"",children:"Select process"}),["washed","natural","honey","anaerobic","co-fermented","infused","unknown"].map(A=>i.jsx("option",{value:A,children:A},A))]})]}),D&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Tasting notes / description",i.jsx("textarea",{value:Y,onChange:A=>K(A.target.value.slice(0,200)),maxLength:200,rows:3,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: red fruits, chocolate, floral"})]}),i.jsxs("fieldset",{disabled:c,children:['
+    'placeholder:"Max 10 characters"})]}),O&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Origin",i.jsx("input",{value:L,onChange:A=>U(A.target.value.slice(0,100)),maxLength:100,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: Yemen / Ethiopia"})]}),P&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Processing method",i.jsxs("select",{value:V,onChange:A=>W(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:[i.jsx("option",{value:"",children:"Select process"}),i.jsx("option",{value:"",children:"unknown"}),["washed","natural","honey","anaerobic","co-fermented","infused"].map(A=>i.jsx("option",{value:A,children:A},A))]})]}),D&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Tasting notes / description",i.jsx("textarea",{value:Y,onChange:A=>K(A.target.value.slice(0,200)),maxLength:200,rows:3,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: red fruits, chocolate, floral"})]}),i.jsxs("fieldset",{disabled:c,children:['
   );
   patched = patched.replace(
     'onClick:()=>d(v.trim(),x.trim(),R)',
@@ -4666,7 +4451,7 @@ function patchRecipeStyleFrontendScript(script) {
   );
   patched = patched.replace(
     'const Km={light:"Light Roast",medium:"Medium Roast",dark:"Dark Roast"};function ed({recipe:o,recipeId:c,readOnly:a=!1,backHref:d="/",backLabel:p="Back for a New Recipe"}){const v=o.brewMode==="cold";return',
-    'const Km={light:"Light Roast",medium_light:"Medium-light Roast",medium:"Medium Roast",medium_dark:"Medium-dark Roast",dark:"Dark Roast",unknown:"Unknown Roast"};function ed({recipe:o,recipeId:c,readOnly:a=!1,backHref:d="/",backLabel:p="Back for a New Recipe"}){const v=o.brewMode==="cold",[h,x]=N.useState(o.rating??null),[S,E]=N.useState(null),[M]=N.useState(()=>{try{const b=sessionStorage.getItem("xbloom:cachedRecipe")===c;b&&sessionStorage.removeItem("xbloom:cachedRecipe");return b}catch{return!1}});async function C(b){const z=h===b?0:b;x(z===0?null:z),E(null);try{const T=await qe(`/api/recipes/${encodeURIComponent(c)}/rating`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({value:z})});x(T.rating??null)}catch(T){E(T instanceof De?T.message:"Could not save rating.")}}return'
+    'const Km={light:"Light Roast",medium_light:"Medium-light Roast",medium:"Medium Roast",medium_dark:"Medium-dark Roast",dark:"Dark Roast",unknown:"Unknown Roast"};function ed({recipe:o,recipeId:c,readOnly:a=!1,backHref:d="/",backLabel:p="Back for a New Recipe"}){const v=o.brewMode==="cold",[h,x]=N.useState(o.rating??null),[S,E]=N.useState(null),[M]=N.useState(()=>{try{const b=sessionStorage.getItem("xbloom:cachedRecipe")===c;b&&sessionStorage.removeItem("xbloom:cachedRecipe");return b}catch{return!1}}),profileLabels={bright_clean:"☀️ Bright & fruity",bright_funky:"🍓 Funky natural",neutral_classic:"⚖️ Classic balanced",dark_roasty:"🍫 Dark & roasty"},actualProfileLabel=o.profile?profileLabels[o.profile]||o.profile:null;async function C(b){const z=h===b?0:b;x(z===0?null:z),E(null);try{const T=await qe(`/api/recipes/${encodeURIComponent(c)}/rating`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({value:z})});x(T.rating??null)}catch(T){E(T instanceof De?T.message:"Could not save rating.")}}return'
   );
   patched = patched.replace(
     'children:v?"V60":"Hot Pour-Over"',
@@ -4674,7 +4459,7 @@ function patchRecipeStyleFrontendScript(script) {
   );
   patched = patched.replace(
     'o.bean.origin&&i.jsx("p",{className:"text-ivory/70 text-sm",children:o.bean.origin})',
-    'o.bean.origin&&i.jsx("p",{className:"text-ivory/70 text-sm",children:o.bean.origin}),M&&i.jsx("p",{className:"mt-3 inline-flex rounded-full bg-sage/20 px-3 py-1 text-xs font-semibold text-sage",children:"Saved recipe — same bean as before"})'
+    'o.bean.origin&&i.jsx("p",{className:"text-ivory/70 text-sm",children:o.bean.origin}),actualProfileLabel&&i.jsx("p",{className:"mt-3 inline-flex rounded-full bg-sage/20 px-3 py-1 text-xs font-semibold text-sage",children:actualProfileLabel}),M&&i.jsx("p",{className:"mt-3 inline-flex rounded-full bg-sage/20 px-3 py-1 text-xs font-semibold text-sage",children:"Saved recipe — same bean as before"})'
   );
   patched = patched.replace(
     ']}),!a&&i.jsxs("section",{"aria-labelledby":"bridge-heading"',
@@ -4756,32 +4541,6 @@ var index_default = {
         if (method !== "GET") throw new MethodNotAllowedError("Use GET");
         return secureApiResponse(await handleMe(request, env, requestId));
       }
-      if (pathname === "/api/bridge/recipes/from-bean") {
-        if (method !== "POST") throw new MethodNotAllowedError("Use POST");
-        return secureApiResponse(await handleBridgeRecipeFromBean(request, env, requestId, executionCtx));
-      }
-      if (pathname === "/api/bridge/recipes/from-upload") {
-        if (method !== "POST") throw new MethodNotAllowedError("Use POST");
-        return secureApiResponse(await handleBridgeRecipeFromUpload(request, env, requestId, executionCtx));
-      }
-      if (pathname === "/api/bridge/whatsapp-users/link") {
-        if (method !== "POST") throw new MethodNotAllowedError("Use POST");
-        return secureApiResponse(await handleBridgeLinkWhatsAppUser(request, env, requestId));
-      }
-      const serviceRecipeLinkMatch = pathname.match(
-        /^\/api\/bridge\/recipes\/([^/]+)\/xbloom-link$/
-      );
-      if (serviceRecipeLinkMatch) {
-        if (method !== "GET") throw new MethodNotAllowedError("Use GET");
-        return secureApiResponse(
-          await handleBridgeRecipeLinkStatus(
-            request,
-            env,
-            requestId,
-            serviceRecipeLinkMatch[1]
-          )
-        );
-      }
       if (pathname === "/api/recipes/from-images") {
         if (method !== "POST") throw new MethodNotAllowedError("Use POST");
         return secureApiResponse(await handleFromImages(request, env, requestId));
@@ -4824,6 +4583,10 @@ var index_default = {
       }
       if (pathname === "/api/admin/beans-advisor/predict") {
         throw new NotFoundError("Route not found");
+      }
+      if (pathname === "/api/admin/bean-profile-cache") {
+        if (method !== "DELETE") throw new MethodNotAllowedError("Use DELETE");
+        return secureApiResponse(await handleDeleteBeanProfileCache(request, env, requestId));
       }
       if (pathname === "/api/admin/users") {
         if (method === "GET")
@@ -4892,6 +4655,9 @@ var index_default = {
           401,
           corsHeaders
         );
+      }
+      if (pathname.startsWith("/api/") || pathname.startsWith("/v1/")) {
+        throw new NotFoundError("Route not found");
       }
       if (isProtectedSpaRoute(pathname) && env.ASSETS) {
         try {
