@@ -1,7 +1,7 @@
 import { InternalError, UpstreamError, UpstreamMalformedError } from "./errors.js";
 import { toDataUrl } from "./image.js";
 import type { DetectedMimeType, ImageData } from "./image.js";
-import type { BeanMetadata, Env } from "./types.js";
+import type { BeanMetadata, Env, RoastLevel } from "./types.js";
 
 const MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 const MAX_TOKENS = 600;
@@ -26,6 +26,14 @@ const BEAN_KNOWN_FIELDS = new Set([
   "flavors",
   "description",
 ]);
+const ROAST_LEVELS = new Set<RoastLevel>([
+  "light",
+  "medium_light",
+  "medium",
+  "medium_dark",
+  "dark",
+  "unknown",
+]);
 
 const SYSTEM_INSTRUCTIONS = `\
 You are a coffee metadata extraction assistant. Analyse the provided coffee bean bag image(s) \
@@ -45,9 +53,9 @@ If you can identify only the roaster/brand and not a specific coffee name, set t
 - variety: coffee cultivar or variety (e.g. "Heirloom", "Typica", "Gesha"). Empty string if not visible.
 - origin: country or region of origin (e.g. "Ethiopia", "Yirgacheffe"). Empty string if not visible.
 - processingMethod: how beans were processed (e.g. "Washed", "Natural", "Honey"). Empty string if not visible.
-- roastLevel: MUST be exactly one of "light", "medium", or "dark". If roast level text is \
-not visible, infer conservatively from visual packaging cues (colour, imagery). If truly \
-indeterminate, choose "medium".
+- roastLevel: MUST be exactly one of "light", "medium_light", "medium", "medium_dark", \
+"dark", or "unknown". Use "unknown" when roast level text is not visible or cannot be \
+read reliably. Do not infer roast from package colour or artwork.
 - flavors: array of tasting note strings printed on the bag. Empty array if none visible.
 - description: brief factual summary of what is visible on the packaging. \
 Write exactly one short sentence, ≤160 characters.
@@ -213,7 +221,7 @@ function mergeBeanMetadata(results: BeanMetadata[]): BeanMetadata {
     variety: firstNonEmpty("variety"),
     origin: firstNonEmpty("origin"),
     processingMethod: firstNonEmpty("processingMethod"),
-    roastLevel: results[0]?.roastLevel ?? "medium",
+    roastLevel: results[0]?.roastLevel ?? "unknown",
     flavors,
     description: firstNonEmpty("description"),
   };
@@ -259,9 +267,9 @@ export function validateBeanMetadata(raw: unknown): BeanMetadata {
   }
 
   const roast = obj.roastLevel;
-  if (roast !== "light" && roast !== "medium" && roast !== "dark") {
+  if (typeof roast !== "string" || !ROAST_LEVELS.has(roast as RoastLevel)) {
     throw new UpstreamMalformedError(
-      `Bean metadata roastLevel must be "light", "medium", or "dark"`,
+      `Bean metadata roastLevel must be "light", "medium_light", "medium", "medium_dark", "dark", or "unknown"`,
     );
   }
 
@@ -291,7 +299,7 @@ export function validateBeanMetadata(raw: unknown): BeanMetadata {
     variety: obj.variety as string,
     origin: obj.origin as string,
     processingMethod: obj.processingMethod as string,
-    roastLevel: roast,
+    roastLevel: roast as RoastLevel,
     flavors: flavors as string[],
     description: obj.description as string,
   };

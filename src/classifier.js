@@ -236,6 +236,22 @@ Roast level: ${bean.roastLevel || "unknown"}
 Tasting notes / description: ${[...(Array.isArray(bean.flavors) ? bean.flavors : []), bean.description].filter(Boolean).join(", ") || "unknown"}`;
 }
 
+function beanHasUnknownRoast(bean) {
+  return bean?.roastLevel === "unknown" || !ROAST_LEVELS.includes(bean?.roastLevel);
+}
+
+function applyUnknownRoastLowConfidence(result, bean) {
+  if (!beanHasUnknownRoast(bean)) return result;
+  const previousProfile = result.profile;
+  return {
+    ...result,
+    profile: "neutral_classic",
+    roastLevel: "unknown",
+    confidence: Math.min(result.confidence, 0.55),
+    reasons: [`unknown roast level: ${previousProfile} not trusted`, ...result.reasons].slice(0, 3),
+  };
+}
+
 function extractOutputText(payload) {
   if (typeof payload?.output_text === "string") return payload.output_text;
   const chunks = [];
@@ -327,7 +343,7 @@ async function classifyWithOpenAI(bean, env) {
 export async function classifyBean(bean, env = {}) {
   if (env.OPENAI_API_KEY) {
     try {
-      return await classifyWithOpenAI(bean, env);
+      return applyUnknownRoastLowConfidence(await classifyWithOpenAI(bean, env), bean);
     } catch (error) {
       console.warn({
         event: "recipe_classifier_fallback",
@@ -336,5 +352,8 @@ export async function classifyBean(bean, env = {}) {
       });
     }
   }
-  return coerceClassifierResult(classifyBeanWithKeywords(bean), "keyword");
+  return applyUnknownRoastLowConfidence(
+    coerceClassifierResult(classifyBeanWithKeywords(bean), "keyword"),
+    bean,
+  );
 }

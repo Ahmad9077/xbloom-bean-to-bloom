@@ -1,12 +1,44 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error recipeEngine is a runtime ESM JS module.
-import { buildRecipe, getProfileOptions, selectTableFinalDrinkMl } from "../src/recipeEngine.js";
+
+const { buildRecipe, getProfileOptions, RULES_VERSION, selectTableFinalDrinkMl } = (await import(
+  String("../src/recipeEngine.js")
+)) as {
+  buildRecipe: (args: Record<string, unknown>) => {
+    name: string;
+    profile: string;
+    rulesVersion: string;
+    machine: string;
+    dripper: string;
+    totalVolumeMl: number;
+    doseG: number;
+    brewRatio: string;
+    grindSize: number;
+    rpm: number;
+    icedServing?: { iceG: number; totalBeverageMl: number };
+    pours: Array<{
+      label: string;
+      volumeMl: number;
+      tempC: number;
+      flowRateMlPerSec: number;
+      pauseSec: number;
+      pattern: string;
+      agitationBefore: boolean;
+    }>;
+  };
+  getProfileOptions: () => unknown[];
+  RULES_VERSION: string;
+  selectTableFinalDrinkMl: (brewMode: "hot" | "cold", finalDrinkMl: number) => number;
+};
+const { RULES_VERSION: FINGERPRINT_RULES_VERSION } = (await import(
+  String("../src/fingerprint.js")
+)) as { RULES_VERSION: string };
 
 const recipeTable = JSON.parse(
   readFileSync(fileURLToPath(String(new URL("../src/recipe-table.json", import.meta.url))), "utf8"),
 ) as {
+  rulesVersion: string;
   recipes: Record<string, Record<"hot" | "cold", { sizes: Record<string, unknown> }>>;
 };
 
@@ -35,7 +67,7 @@ describe("buildRecipe", () => {
 
     expect(recipe.name).toBe("admin - Cold/Qayel/Yemen");
     expect(recipe.profile).toBe("neutral_classic");
-    expect(recipe.rulesVersion).toBe("1.0.1");
+    expect(recipe.rulesVersion).toBe("1.0.2");
     expect(recipe.machine).toBe("xBloom Studio");
     expect(recipe.dripper).toBe("Omni");
     expect(recipe.totalVolumeMl).toBe(176);
@@ -104,6 +136,38 @@ describe("buildRecipe", () => {
   it("maps legacy hot 250ml target to the nearest shadow-table size", () => {
     expect(selectTableFinalDrinkMl("hot", 250)).toBe(255);
     expect(selectTableFinalDrinkMl("cold", 300)).toBe(300);
+  });
+
+  it("single-sources the fingerprint and recipe engine rules version from the table", () => {
+    expect(RULES_VERSION).toBe(recipeTable.rulesVersion);
+    expect(FINGERPRINT_RULES_VERSION).toBe(recipeTable.rulesVersion);
+  });
+
+  it("keeps neutral_classic hot on the approved 1:15 ladder", () => {
+    const neutralClassic = recipeTable.recipes.neutral_classic;
+    expect(neutralClassic).toBeDefined();
+    const sizes = neutralClassic?.hot.sizes as Record<
+      string,
+      { doseG: number; ratioN: number; waterMl: number }
+    >;
+    expect(
+      [210, 225, 240, 255, 270].map((size) => {
+        const cell = sizes[String(size)];
+        expect(cell).toBeDefined();
+        return {
+          size,
+          doseG: cell?.doseG,
+          ratioN: cell?.ratioN,
+          waterMl: cell?.waterMl,
+        };
+      }),
+    ).toEqual([
+      { size: 210, doseG: 14, ratioN: 15, waterMl: 210 },
+      { size: 225, doseG: 15, ratioN: 15, waterMl: 225 },
+      { size: 240, doseG: 16, ratioN: 15, waterMl: 240 },
+      { size: 255, doseG: 17, ratioN: 15, waterMl: 255 },
+      { size: 270, doseG: 18, ratioN: 15, waterMl: 270 },
+    ]);
   });
 
   it("exposes frontend profile options from the table", () => {

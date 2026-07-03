@@ -10,6 +10,7 @@
  */
 import fs from "node:fs";
 
+const DEFAULT_TABLE_PATH = new URL("../src/recipe-table.json", import.meta.url);
 const FLOWS = [3.0, 3.1, 3.2, 3.3, 3.4, 3.5];
 const RPMS = [60, 70, 80, 90, 100, 110, 120];
 const PATTERNS = ["centered", "spiral", "circular"];
@@ -17,7 +18,7 @@ const LABELS = ["Bloom", "Pour 2", "Pour 3", "Pour 4"];
 const PROFILES = ["bright_clean", "bright_funky", "neutral_classic", "dark_roasty"];
 const MODES = ["hot", "cold"];
 
-const file = process.argv[2] || "recipe-table.json";
+const file = process.argv[2] || DEFAULT_TABLE_PATH;
 const t = JSON.parse(fs.readFileSync(file, "utf8"));
 const errors = [];
 const err = (m) => errors.push(m);

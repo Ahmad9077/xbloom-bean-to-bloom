@@ -64,4 +64,26 @@ describe("classifyBean", () => {
       confidence: 0.5,
     });
   });
+
+  it("treats unknown roast level as low-confidence neutral", async () => {
+    const result = await classifyBean(
+      {
+        storeName: "Roaster",
+        beanName: "Anaerobic Berry",
+        origin: "Ethiopia",
+        processingMethod: "Anaerobic natural",
+        roastLevel: "unknown",
+        flavors: ["strawberry", "floral", "winey"],
+        description: "Anaerobic natural process, strawberry, floral, winey",
+      },
+      {},
+    );
+
+    expect(result).toMatchObject({
+      profile: "neutral_classic",
+      roastLevel: "unknown",
+      source: "keyword",
+    });
+    expect(result.confidence).toBeLessThan(0.6);
+  });
 });

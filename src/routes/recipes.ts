@@ -1,4 +1,14 @@
-import { enforceSameOrigin, requireAuth } from "../auth/middleware.js";
+/**
+ * LEGACY TEST ROUTE / NOT PRODUCTION SOURCE OF TRUTH.
+ *
+ * wrangler.toml deploys the root Worker entrypoint:
+ *   main = "index.js"
+ *
+ * Keep this file only for the existing TypeScript route tests. Production
+ * recipe behavior lives in /index.js.
+ */
+
+import { requireAuth } from "../auth/middleware.js";
 import {
   RECIPE_MAX_ATTEMPTS,
   countRecentRecipeAttempts,
@@ -7,31 +17,24 @@ import {
   recordRecipeAttempt,
   storeRecipe,
 } from "../db.js";
-import { ClientError, NotFoundError, PayloadTooLargeError, RateLimitError } from "../errors.js";
+import { ClientError, NotFoundError, RateLimitError } from "../errors.js";
 import { extractImagesFromFormData } from "../image.js";
-import { recommendRecipe } from "../openai.js";
-import { validateRecipeInvariants } from "../recipe.js";
+import { generateRecipe, validateRecipeInvariants } from "../recipe.js";
 import { sanitizeModelString } from "../sanitize.js";
 import { verifyTurnstile } from "../turnstile.js";
-import type { BeanMetadata, Env, Recipe } from "../types.js";
+import type { BeanMetadata, Env } from "../types.js";
 import { extractBeanMetadata } from "../vision.js";
 
 const EN_DASH = "–";
 const RECIPE_PATH_PREFIX = "/recipes/";
-
-// ---------------------------------------------------------------------------
-// POST /api/recipes/from-images
-// ---------------------------------------------------------------------------
 
 export async function handleFromImages(
   request: Request,
   env: Env,
   requestId: string,
 ): Promise<Response> {
-  enforceSameOrigin(request);
   const ctx = await requireAuth(request, env);
 
-  // Check generation rate limit
   const attemptCount = await countRecentRecipeAttempts(env.DB, ctx.userId);
   if (attemptCount >= RECIPE_MAX_ATTEMPTS) {
     throw new RateLimitError("Recipe generation limit reached. Try again later.");
@@ -52,14 +55,9 @@ export async function handleFromImages(
   }
 
   const images = await extractImagesFromFormData(formData);
-
-  // Record attempt BEFORE calling AI (counts whether or not AI succeeds)
   await recordRecipeAttempt(env.DB, ctx.userId);
 
-  // Cloudflare Workers AI extracts the photos. OpenAI receives text metadata only.
   const bean = await extractBeanMetadata(images, env);
-
-  // Sanitize model-sourced strings
   const safeBeanName = sanitizeModelString(bean.beanName, 100).trim() || "Unknown Bean";
   const sanitizedBean: BeanMetadata = {
     beanName: safeBeanName,
@@ -69,29 +67,19 @@ export async function handleFromImages(
     processingMethod: sanitizeModelString(bean.processingMethod, 100),
     roastLevel: bean.roastLevel,
     flavors: bean.flavors
-      .map((v) => sanitizeModelString(v, 50))
+      .map((value) => sanitizeModelString(value, 50))
       .filter(Boolean)
       .slice(0, 20),
     description: sanitizeModelString(bean.description, 200),
   };
 
-  const recommended = await recommendRecipe(sanitizedBean, brewMode, env);
-
   const recipeName = `${ctx.username} ${EN_DASH} ${safeBeanName}`;
-  const { icedServing, ...recipeCore } = recommended;
-  const recipe: Recipe = {
-    ...recipeCore,
+  const recipe = {
+    ...generateRecipe(sanitizedBean, "Omni", brewMode),
     name: recipeName,
-    machine: "xBloom Studio",
-    dripper: "Omni",
-    brewMode,
-    bean: sanitizedBean,
-    ...(icedServing === null ? {} : { icedServing }),
   };
   validateRecipeInvariants(recipe);
 
-  // Only extracted text and validated recipe data are persisted. Image bytes remain
-  // request-scoped and become unreachable immediately after this handler returns.
   const recipeId = crypto.randomUUID();
   await storeRecipe(env.DB, {
     id: recipeId,
@@ -101,23 +89,17 @@ export async function handleFromImages(
     recipeJson: JSON.stringify(recipe),
   });
 
-  const body = JSON.stringify({
-    ok: true,
-    requestId,
-    id: recipeId,
-    link: `${RECIPE_PATH_PREFIX}${recipeId}`,
-    recipe,
-  });
-
-  return new Response(body, {
-    status: 201,
-    headers: { "Content-Type": "application/json;charset=UTF-8" },
-  });
+  return new Response(
+    JSON.stringify({
+      ok: true,
+      requestId,
+      id: recipeId,
+      link: `${RECIPE_PATH_PREFIX}${recipeId}`,
+      recipe,
+    }),
+    { status: 201, headers: { "Content-Type": "application/json;charset=UTF-8" } },
+  );
 }
-
-// ---------------------------------------------------------------------------
-// GET /api/recipes — history for current user
-// ---------------------------------------------------------------------------
 
 export async function handleListRecipes(
   request: Request,
@@ -127,12 +109,12 @@ export async function handleListRecipes(
   const ctx = await requireAuth(request, env);
   const rows = await listRecipesByOwner(env.DB, ctx.userId);
 
-  const items = rows.map((r) => ({
-    id: r.id,
-    fullName: r.full_name,
-    beanName: r.bean_name,
-    createdAt: r.created_at,
-    link: `${RECIPE_PATH_PREFIX}${r.id}`,
+  const items = rows.map((recipe) => ({
+    id: recipe.id,
+    fullName: recipe.full_name,
+    beanName: recipe.bean_name,
+    createdAt: recipe.created_at,
+    link: `${RECIPE_PATH_PREFIX}${recipe.id}`,
   }));
 
   return new Response(JSON.stringify({ ok: true, requestId, recipes: items }), {
@@ -140,10 +122,6 @@ export async function handleListRecipes(
     headers: { "Content-Type": "application/json;charset=UTF-8" },
   });
 }
-
-// ---------------------------------------------------------------------------
-// GET /api/recipes/:id — single recipe (owner only)
-// ---------------------------------------------------------------------------
 
 export async function handleGetRecipe(
   request: Request,
@@ -154,7 +132,6 @@ export async function handleGetRecipe(
   const ctx = await requireAuth(request, env);
   const row = await findRecipeById(env.DB, recipeId);
 
-  // Indistinguishable 404 for missing or not-owned
   if (!row || row.owner_id !== ctx.userId) {
     throw new NotFoundError("Recipe not found");
   }
@@ -171,10 +148,6 @@ export async function handleGetRecipe(
     headers: { "Content-Type": "application/json;charset=UTF-8" },
   });
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function parseBrewMode(formData: FormData): "cold" | "hot" {
   const raw = formData.get("brewMode");

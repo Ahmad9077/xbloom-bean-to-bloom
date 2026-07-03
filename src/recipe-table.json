@@ -1,5 +1,5 @@
 {
-  "rulesVersion": "1.0.1",
+  "rulesVersion": "1.0.2",
   "machine": "xBloom Studio",
   "brewMethod": "V60",
   "authoring_note": "Single source of truth for all recipes. Edit only via CALIBRATION.md rules. Every change must pass validate-recipe-table.mjs and bump rulesVersion.",
@@ -160,8 +160,8 @@
         "sizes": {
           "210": { "doseG": 14, "ratioN": 15, "waterMl": 210, "pours": [ { "label": "Bloom", "volumeMl": 34 }, { "label": "Pour 2", "volumeMl": 64 }, { "label": "Pour 3", "volumeMl": 60 }, { "label": "Pour 4", "volumeMl": 52 } ] },
           "225": { "doseG": 15, "ratioN": 15, "waterMl": 225, "pours": [ { "label": "Bloom", "volumeMl": 36 }, { "label": "Pour 2", "volumeMl": 68 }, { "label": "Pour 3", "volumeMl": 64 }, { "label": "Pour 4", "volumeMl": 57 } ] },
-          "240": { "doseG": 15, "ratioN": 16, "waterMl": 240, "pours": [ { "label": "Bloom", "volumeMl": 36 }, { "label": "Pour 2", "volumeMl": 74 }, { "label": "Pour 3", "volumeMl": 68 }, { "label": "Pour 4", "volumeMl": 62 } ] },
-          "255": { "doseG": 15, "ratioN": 17, "waterMl": 255, "pours": [ { "label": "Bloom", "volumeMl": 36 }, { "label": "Pour 2", "volumeMl": 79 }, { "label": "Pour 3", "volumeMl": 73 }, { "label": "Pour 4", "volumeMl": 67 } ] },
+          "240": { "doseG": 16, "ratioN": 15, "waterMl": 240, "pours": [ { "label": "Bloom", "volumeMl": 38 }, { "label": "Pour 2", "volumeMl": 73 }, { "label": "Pour 3", "volumeMl": 67 }, { "label": "Pour 4", "volumeMl": 62 } ] },
+          "255": { "doseG": 17, "ratioN": 15, "waterMl": 255, "pours": [ { "label": "Bloom", "volumeMl": 41 }, { "label": "Pour 2", "volumeMl": 77 }, { "label": "Pour 3", "volumeMl": 71 }, { "label": "Pour 4", "volumeMl": 66 } ] },
           "270": { "doseG": 18, "ratioN": 15, "waterMl": 270, "pours": [ { "label": "Bloom", "volumeMl": 43 }, { "label": "Pour 2", "volumeMl": 82 }, { "label": "Pour 3", "volumeMl": 76 }, { "label": "Pour 4", "volumeMl": 69 } ] }
         }
       },

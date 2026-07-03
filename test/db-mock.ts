@@ -15,6 +15,7 @@ const MIGRATION_SQL = [
     join(__dirname, "../migrations/0002_ai_recommendations_and_share_links.sql"),
     "utf8",
   ),
+  readFileSync(join(__dirname, "../migrations/011_bean_profile_cache.sql"), "utf8"),
 ].join("\n");
 
 // ---------------------------------------------------------------------------

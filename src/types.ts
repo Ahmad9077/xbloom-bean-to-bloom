@@ -18,7 +18,7 @@ export interface Env {
 // Bean metadata (extracted by Cloudflare Workers AI vision)
 // ---------------------------------------------------------------------------
 
-export type RoastLevel = "light" | "medium" | "dark";
+export type RoastLevel = "light" | "medium_light" | "medium" | "medium_dark" | "dark" | "unknown";
 
 export interface BeanMetadata {
   /** Most prominent product/bean coffee name from the bag. "Unknown Bean" when unreliable. */

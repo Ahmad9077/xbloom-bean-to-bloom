@@ -35,7 +35,11 @@ describe("validateBeanMetadata", () => {
     expect(() => validateBeanMetadata(LIGHT_BEAN)).not.toThrow();
   });
 
-  it("throws when roastLevel is not one of the three values", () => {
+  it("accepts unknown roastLevel when the roast is not visible", () => {
+    expect(() => validateBeanMetadata({ ...LIGHT_BEAN, roastLevel: "unknown" })).not.toThrow();
+  });
+
+  it("throws when roastLevel is not one of the known values", () => {
     expect(() => validateBeanMetadata({ ...LIGHT_BEAN, roastLevel: "blonde" })).toThrow(
       /roastLevel/,
     );

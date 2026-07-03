@@ -83,6 +83,18 @@ const ROAST_PARAMS: Record<RoastLevel, RoastParams> = {
     bloomTempOffset: -1,
     pour3TempOffset: 1,
   },
+  medium_light: {
+    grindSize: 23,
+    baseTemp: 92,
+    rpm: 90,
+    ratioN: 13,
+    bloomPauseSec: 38,
+    pour2PauseSec: 18,
+    pour3PauseSec: 8,
+    flowRate: 3.0,
+    bloomTempOffset: -1,
+    pour3TempOffset: 1,
+  },
   medium: {
     grindSize: 25,
     baseTemp: 91,
@@ -95,6 +107,18 @@ const ROAST_PARAMS: Record<RoastLevel, RoastParams> = {
     bloomTempOffset: -1,
     pour3TempOffset: 1,
   },
+  medium_dark: {
+    grindSize: 30,
+    baseTemp: 89,
+    rpm: 80,
+    ratioN: 11,
+    bloomPauseSec: 32,
+    pour2PauseSec: 12,
+    pour3PauseSec: 5,
+    flowRate: 3.1,
+    bloomTempOffset: 0,
+    pour3TempOffset: 0,
+  },
   dark: {
     grindSize: 35,
     baseTemp: 87,
@@ -106,6 +130,18 @@ const ROAST_PARAMS: Record<RoastLevel, RoastParams> = {
     flowRate: 3.2,
     bloomTempOffset: 0,
     pour3TempOffset: 0,
+  },
+  unknown: {
+    grindSize: 25,
+    baseTemp: 91,
+    rpm: 90,
+    ratioN: 12,
+    bloomPauseSec: 35,
+    pour2PauseSec: 15,
+    pour3PauseSec: 5,
+    flowRate: 3.0,
+    bloomTempOffset: -1,
+    pour3TempOffset: 1,
   },
 };
 
@@ -174,7 +210,12 @@ function clampPause(v: number): number {
  * Bloom fraction varies by roast. Remainder is split 60/40 between pours 2 and 3.
  */
 function allocatePourVolumes(totalMl: number, roastLevel: RoastLevel): [number, number, number] {
-  const bloomFraction = roastLevel === "light" ? 0.22 : roastLevel === "medium" ? 0.25 : 0.34;
+  const bloomFraction =
+    roastLevel === "light" || roastLevel === "medium_light"
+      ? 0.22
+      : roastLevel === "medium" || roastLevel === "unknown"
+        ? 0.25
+        : 0.34;
   const bloom = clamp(Math.round(totalMl * bloomFraction), POUR_VOL_MIN + 1, POUR_VOL_MAX);
   const remaining = totalMl - bloom;
   const pour2 = clamp(Math.round(remaining * 0.6), POUR_VOL_MIN + 1, POUR_VOL_MAX);
@@ -258,7 +299,15 @@ export function generateRecipe(
   ];
 
   const origin = bean.origin ? `${bean.origin} ` : "";
-  const roastLabel = bean.roastLevel.charAt(0).toUpperCase() + bean.roastLevel.slice(1);
+  const roastLabel =
+    {
+      light: "Light",
+      medium_light: "Medium-light",
+      medium: "Medium",
+      medium_dark: "Medium-dark",
+      dark: "Dark",
+      unknown: "Unknown",
+    }[bean.roastLevel] ?? "Unknown";
   const name =
     brewMode === "cold"
       ? `${origin}Iced ${roastLabel} Roast`.trim()

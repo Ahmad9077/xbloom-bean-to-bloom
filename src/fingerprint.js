@@ -4,7 +4,9 @@
 // are intentionally excluded because they can vary across photos for the same
 // bag.
 
-export const RULES_VERSION = "1.0.1";
+import table from "./recipe-table.json" with { type: "json" };
+
+export const RULES_VERSION = table.rulesVersion;
 export const DEFAULT_RECIPE_PROFILE = "neutral_classic";
 
 export function normalizeFingerprintPart(value) {
