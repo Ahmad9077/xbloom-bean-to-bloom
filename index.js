@@ -7,8 +7,10 @@ import {
 import { classifyBean } from "./src/classifier.js";
 import {
   buildRecipe as buildTableRecipe,
+  ENGINE_VERSION as RECIPE_ENGINE_VERSION,
   getProfileOptions,
   getRecipeCell,
+  getRecipePlan,
   selectTableFinalDrinkMl
 } from "./src/recipeEngine.js";
 var __defProp = Object.defineProperty;
@@ -202,8 +204,8 @@ async function storeRecipe(db, data) {
   await db.prepare(
     `INSERT INTO recipes
          (id, owner_id, full_name, store_name, bean_name, recipe_json, source,
-          profile, rules_version, fingerprint, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          profile, rules_version, fingerprint, retune_revision, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(
     data.id,
     data.ownerId,
@@ -215,6 +217,7 @@ async function storeRecipe(db, data) {
     data.profile ?? null,
     data.rulesVersion ?? null,
     data.fingerprint ?? null,
+    data.retuneRevision ?? 0,
     now,
     now
   ).run();
@@ -225,8 +228,9 @@ async function storeRecipeAndCompleteConfirmation(db, data) {
     db.prepare(
       `INSERT INTO recipes
            (id, owner_id, full_name, store_name, bean_name, recipe_json,
-            source_confirmation_id, profile, rules_version, fingerprint, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            source_confirmation_id, profile, rules_version, fingerprint, retune_revision,
+            created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       data.id,
       data.ownerId,
@@ -238,6 +242,7 @@ async function storeRecipeAndCompleteConfirmation(db, data) {
       data.profile ?? null,
       data.rulesVersion ?? null,
       data.fingerprint ?? null,
+      data.retuneRevision ?? 0,
       now,
       now
     ),
@@ -381,6 +386,53 @@ async function findCanonicalRecipeByIdentity(db, storeName, beanName, brewMode) 
        LIMIT 1`
   ).bind(storeName, beanName, brewMode).first();
 }
+async function getBeanRecipeRevision(db, data) {
+  const normalizedKey = data.normalizedKey;
+  if (!normalizedKey) return 0;
+  const row = await db.prepare(
+    `SELECT revision FROM bean_recipe_revisions
+       WHERE owner_id = ?
+         AND normalized_key = ?
+         AND brew_mode = ?
+         AND profile = ?
+         AND final_drink_ml = ?
+         AND engine_version = ?
+       LIMIT 1`
+  ).bind(
+    data.ownerId,
+    normalizedKey,
+    data.brewMode,
+    data.profile,
+    data.finalDrinkMl,
+    data.engineVersion
+  ).first();
+  const revision = Number(row?.revision ?? 0);
+  return Number.isInteger(revision) && revision >= 0 ? revision : 0;
+}
+__name(getBeanRecipeRevision, "getBeanRecipeRevision");
+async function rememberBeanRecipeRevision(db, data) {
+  const normalizedKey = data.normalizedKey;
+  if (!normalizedKey) return;
+  const now = Date.now();
+  await db.prepare(
+    `INSERT INTO bean_recipe_revisions
+       (owner_id, normalized_key, brew_mode, profile, final_drink_ml, engine_version,
+        revision, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(owner_id, normalized_key, brew_mode, profile, final_drink_ml, engine_version)
+     DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at`
+  ).bind(
+    data.ownerId,
+    normalizedKey,
+    data.brewMode,
+    data.profile,
+    data.finalDrinkMl,
+    data.engineVersion,
+    data.revision,
+    now
+  ).run();
+}
+__name(rememberBeanRecipeRevision, "rememberBeanRecipeRevision");
 async function createPendingRecipeConfirmation(db, data) {
   const now = Date.now();
   const expiresAt = now + RECIPE_CONFIRMATION_TTL_MS;
@@ -3759,14 +3811,26 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
     { forceUpdate: profileCacheRefresh !== null }
   );
   const targets = resolveRecipeTargets(pending.brew_mode, preferences);
+  const tableFinalDrinkMl = selectTableFinalDrinkMl(pending.brew_mode, targets.finalDrinkMl);
   const rulesVersion = RECIPE_RULES_VERSION;
+  const normalizedBeanKey = beanProfileCacheKey(storeName, beanName);
+  const revision = await getBeanRecipeRevision(env.DB, {
+    ownerId: ctx.userId,
+    normalizedKey: normalizedBeanKey,
+    brewMode: pending.brew_mode,
+    profile: chosenProfile,
+    finalDrinkMl: tableFinalDrinkMl,
+    engineVersion: RECIPE_ENGINE_VERSION
+  });
   const fingerprint = await recipeFingerprint({
     roastery: storeName,
     beanName,
     brewMode: pending.brew_mode,
-    finalDrinkMl: targets.finalDrinkMl,
+    finalDrinkMl: tableFinalDrinkMl,
     profile: chosenProfile,
-    rulesVersion
+    rulesVersion,
+    revision,
+    engineVersion: RECIPE_ENGINE_VERSION
   });
   const cached = await findRecipeByFingerprint(env.DB, ctx.userId, fingerprint);
   if (cached) {
@@ -3796,7 +3860,13 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
       preferences,
       pending.id,
       { storeName: extracted.storeName, beanName: extracted.beanName },
-      { profile: chosenProfile, rulesVersion, fingerprint },
+      {
+        profile: chosenProfile,
+        rulesVersion,
+        fingerprint,
+        revision,
+        engineVersion: RECIPE_ENGINE_VERSION
+      },
       executionCtx
     );
     return response;
@@ -4000,6 +4070,292 @@ async function logRecipeShadow({
   }
 }
 __name(logRecipeShadow, "logRecipeShadow");
+var HYBRID_PATTERN_VALUES = /* @__PURE__ */ new Set(["centered", "spiral", "circular"]);
+var HYBRID_COMPLAINT_VALUES = /* @__PURE__ */ new Set(["sour", "bitter", "weak", "harsh"]);
+function hybridRecipeSchema(plan) {
+  const constraints = plan.constraints;
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["grindSize", "rpm", "pours", "tasteRationale"],
+    properties: {
+      grindSize: {
+        type: "integer",
+        minimum: constraints.grindBand[0],
+        maximum: constraints.grindBand[1]
+      },
+      rpm: {
+        type: "integer",
+        enum: validRpmChoices(constraints.rpmRange)
+      },
+      pours: {
+        type: "array",
+        minItems: plan.pourCount,
+        maxItems: plan.pourCount,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "tempC",
+            "flowRateMlPerSec",
+            "pauseSec",
+            "pattern",
+            "agitationBefore",
+            "agitationAfter"
+          ],
+          properties: {
+            tempC: {
+              type: "integer",
+              minimum: constraints.tempRange[0],
+              maximum: constraints.tempRange[1]
+            },
+            flowRateMlPerSec: {
+              type: "number",
+              enum: constraints.flowChoices
+            },
+            pauseSec: {
+              type: "integer",
+              minimum: constraints.pauseRange[0],
+              maximum: constraints.pauseRange[1]
+            },
+            pattern: { type: "string", enum: constraints.patterns },
+            agitationBefore: { type: "boolean" },
+            agitationAfter: { type: "boolean" }
+          }
+        }
+      },
+      tasteRationale: { type: "string", minLength: 1, maxLength: 200 }
+    }
+  };
+}
+__name(hybridRecipeSchema, "hybridRecipeSchema");
+function validRpmChoices(range) {
+  const [min, max] = range;
+  return [60, 70, 80, 90, 100, 110, 120].filter((rpm) => rpm >= min && rpm <= max);
+}
+__name(validRpmChoices, "validRpmChoices");
+async function recommendHybridTuning(bean, brewMode, env, plan, complaint = null) {
+  if (!env.OPENAI_API_KEY) {
+    console.warn({ event: "hybrid_recipe_fallback", reason: "openai_not_configured", brewMode });
+    return null;
+  }
+  let malformed = false;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      return await requestHybridRecipeTuning(bean, brewMode, env, plan, complaint, attempt);
+    } catch (error) {
+      if (error instanceof UpstreamError) {
+        console.warn({
+          event: "hybrid_recipe_fallback",
+          reason: "openai_provider_error",
+          brewMode
+        });
+        return null;
+      }
+      if (!(error instanceof UpstreamMalformedError)) throw error;
+      malformed = true;
+      console.warn({
+        event: "hybrid_recipe_retry",
+        reason: error.message,
+        attempt,
+        brewMode
+      });
+    }
+  }
+  console.warn({
+    event: "hybrid_recipe_fallback",
+    reason: malformed ? "openai_malformed_or_rejected" : "unknown",
+    brewMode
+  });
+  return null;
+}
+__name(recommendHybridTuning, "recommendHybridTuning");
+async function requestHybridRecipeTuning(bean, brewMode, env, plan, complaint, attempt) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.min(TIMEOUT_MS3, 3e4));
+  let response;
+  try {
+    response = await fetch(OPENAI_URL3, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: MODEL4,
+        store: false,
+        reasoning: { effort: "medium" },
+        max_output_tokens: 1200,
+        input: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: buildHybridRecipePrompt(bean, brewMode, plan, complaint, attempt)
+              }
+            ]
+          }
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "xbloom_hybrid_recipe_tuning",
+            strict: true,
+            schema: hybridRecipeSchema(plan)
+          }
+        }
+      })
+    });
+  } catch {
+    throw new UpstreamError("OpenAI hybrid request failed");
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (!response.ok) {
+    if (response.status === 429) throw new UpstreamError("OpenAI rate or spending limit reached");
+    throw new UpstreamError("OpenAI hybrid API request failed");
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new UpstreamMalformedError("OpenAI hybrid response was invalid JSON");
+  }
+  const raw = parseRecipeJson(extractOutputText3(payload));
+  return validateHybridRecipeTuning(raw, plan);
+}
+__name(requestHybridRecipeTuning, "requestHybridRecipeTuning");
+function buildHybridRecipePrompt(bean, brewMode, plan, complaint, attempt) {
+  const constraints = plan.constraints;
+  const fixed = constraints.fixed;
+  const complaintLine = complaint ? `
+Previous attempt for this same bean was rated bad: ${complaintLabel(complaint)}.
+Adjust within the bands using one main variable only, with the smallest sensible supporting changes.` : "";
+  const retryLine = attempt > 1 ? "\nThis is a retry. Your previous JSON was rejected by validation. Stay strictly inside every listed bound." : "";
+  return `You are tuning an xBloom Studio V60 ${brewMode} recipe.
+
+Bean metadata:
+${JSON.stringify(bean, null, 2)}
+
+Chosen brew profile: ${plan.profile}
+Fixed table cell:
+- final drink menu cell: ${plan.finalDrinkMl} ml
+- dose: ${fixed.doseG} g
+- ratio: 1:${fixed.ratioN}
+- machine water: ${fixed.waterMl} ml
+- pour labels: ${fixed.pourLabels.join(", ")}
+- pour volumes: ${fixed.pourVolumes.join(", ")} ml
+
+You MUST keep dose, ratio, total water, pour count, labels, and pour volumes fixed.
+Return only tunable machine variables: grindSize, rpm, per-pour tempC, flowRateMlPerSec, pauseSec, pattern, agitationBefore, agitationAfter, and tasteRationale.
+
+Allowed tuning bands:
+- grindSize: integer ${constraints.grindBand[0]}-${constraints.grindBand[1]}
+- rpm: ${validRpmChoices(constraints.rpmRange).join(", ")}
+- tempC: integer ${constraints.tempRange[0]}-${constraints.tempRange[1]}
+- flowRateMlPerSec: ${constraints.flowChoices.join(", ")}
+- pauseSec: integer 2-59
+- pattern: centered, spiral, circular
+
+Differentiate meaningfully for this bean. Use variety, origin/altitude implied by origin, process, roast level, and tasting notes.
+For brighter/high-altitude/washed/floral beans, tune for clean fruit and sweetness without sourness.
+For natural/anaerobic/co-fermented/infused beans, tune to keep aroma and sweetness but avoid harsh fermented acidity.
+For darker/chocolate/nutty beans, tune cooler/coarser/gentler to avoid bitterness.
+The tasteRationale must be <=200 characters and explain why these settings fit this bean.${complaintLine}${retryLine}`;
+}
+__name(buildHybridRecipePrompt, "buildHybridRecipePrompt");
+function validateHybridRecipeTuning(value, plan) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new UpstreamMalformedError("OpenAI hybrid tuning is not an object");
+  }
+  const constraints = plan.constraints;
+  const grindSize = value.grindSize;
+  if (!Number.isInteger(grindSize) || grindSize < constraints.grindBand[0] || grindSize > constraints.grindBand[1]) {
+    throw new UpstreamMalformedError("OpenAI hybrid grind is outside the table band");
+  }
+  const rpm = value.rpm;
+  if (!Number.isInteger(rpm) || !validRpmChoices(constraints.rpmRange).includes(rpm)) {
+    throw new UpstreamMalformedError("OpenAI hybrid RPM is outside the table band");
+  }
+  const pours = value.pours;
+  if (!Array.isArray(pours) || pours.length !== plan.pourCount) {
+    throw new UpstreamMalformedError("OpenAI hybrid pour count does not match the table cell");
+  }
+  const normalizedPours = pours.map((pour, index) => {
+    if (!pour || typeof pour !== "object" || Array.isArray(pour)) {
+      throw new UpstreamMalformedError(`OpenAI hybrid pour ${index + 1} is invalid`);
+    }
+    const tempC = pour.tempC;
+    const flowRateMlPerSec = pour.flowRateMlPerSec;
+    const pauseSec = pour.pauseSec;
+    const pattern = pour.pattern;
+    const agitationBefore = pour.agitationBefore;
+    const agitationAfter = pour.agitationAfter;
+    if (!Number.isInteger(tempC) || tempC < constraints.tempRange[0] || tempC > constraints.tempRange[1]) {
+      throw new UpstreamMalformedError(`OpenAI hybrid pour ${index + 1} temp is outside the table band`);
+    }
+    if (!constraints.flowChoices.includes(flowRateMlPerSec)) {
+      throw new UpstreamMalformedError(`OpenAI hybrid pour ${index + 1} flow is outside the table band`);
+    }
+    if (!Number.isInteger(pauseSec) || pauseSec < constraints.pauseRange[0] || pauseSec > constraints.pauseRange[1]) {
+      throw new UpstreamMalformedError(`OpenAI hybrid pour ${index + 1} pause is outside the table band`);
+    }
+    if (typeof pattern !== "string" || !HYBRID_PATTERN_VALUES.has(pattern)) {
+      throw new UpstreamMalformedError(`OpenAI hybrid pour ${index + 1} pattern is invalid`);
+    }
+    if (typeof agitationBefore !== "boolean" || typeof agitationAfter !== "boolean") {
+      throw new UpstreamMalformedError(`OpenAI hybrid pour ${index + 1} agitation is invalid`);
+    }
+    return {
+      tempC,
+      flowRateMlPerSec,
+      pauseSec,
+      pattern,
+      agitationBefore,
+      agitationAfter
+    };
+  });
+  const tasteRationale = sanitizeModelString(value.tasteRationale, 200);
+  if (!tasteRationale || tasteRationale.length > 200) {
+    throw new UpstreamMalformedError("OpenAI hybrid taste rationale is invalid");
+  }
+  return {
+    tuning: {
+      grindSize,
+      rpm,
+      pours: normalizedPours
+    },
+    tasteRationale
+  };
+}
+__name(validateHybridRecipeTuning, "validateHybridRecipeTuning");
+function complaintLabel(complaint) {
+  switch (complaint) {
+    case "sour":
+      return "too sour";
+    case "bitter":
+      return "too bitter";
+    case "weak":
+      return "too weak/no taste";
+    case "harsh":
+      return "too harsh";
+    default:
+      return "needs work";
+  }
+}
+__name(complaintLabel, "complaintLabel");
+function parseRecipeComplaint(value) {
+  if (value === void 0 || value === null || value === "") return null;
+  if (typeof value !== "string") throw new ClientError("Choose what was wrong with the cup");
+  const normalized = value.trim().toLowerCase();
+  if (!HYBRID_COMPLAINT_VALUES.has(normalized)) {
+    throw new ClientError("Choose sour, bitter, weak/no taste, or harsh");
+  }
+  return normalized;
+}
+__name(parseRecipeComplaint, "parseRecipeComplaint");
 async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitizedBean, brewMode, preferences, confirmationId, searchHints = {}, engineMeta = null, executionCtx = null) {
   if (env.RECIPE_ENGINE !== "table") {
     throw new InternalError('RECIPE_ENGINE must be "table"');
@@ -4029,9 +4385,17 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
     effectiveEngineMeta = {
       profile,
       rulesVersion: RECIPE_RULES_VERSION,
-      fingerprint: effectiveEngineMeta?.fingerprint ?? null
+      fingerprint: effectiveEngineMeta?.fingerprint ?? null,
+      revision: Number.isInteger(effectiveEngineMeta?.revision) ? effectiveEngineMeta.revision : 0,
+      engineVersion: effectiveEngineMeta?.engineVersion ?? RECIPE_ENGINE_VERSION,
+      complaint: effectiveEngineMeta?.complaint ?? null
     };
-    recipe = buildTableRecipe({
+    const plan = getRecipePlan({
+      profile,
+      brewMode,
+      finalDrinkMl: tableFinalDrinkMl
+    });
+    const fallbackRecipe = buildTableRecipe({
       profile,
       brewMode,
       finalDrinkMl: tableFinalDrinkMl,
@@ -4039,78 +4403,52 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
       username,
       roastery: safeStoreName,
       beanName: safeBeanName,
-      fingerprint: effectiveEngineMeta.fingerprint
+      fingerprint: effectiveEngineMeta.fingerprint,
+      engine: "table_fallback",
+      engineVersion: effectiveEngineMeta.engineVersion,
+      tasteRationale: "Table fallback used because adaptive tuning was unavailable.",
+      retuneRevision: effectiveEngineMeta.revision,
+      ratingComplaint: effectiveEngineMeta.complaint
     });
-  } else {
-    const adminTasteProfile = await recipeOwnerUsesAdminTasteProfile(env.DB, ownerId);
-    let recommended;
-    try {
-      recommended = await recommendRecipe(enrichedBean, brewMode, env, preferences, {
-        adminTasteProfile,
-        tasteStyle: preferences.tasteStyle ?? "default"
-      });
-      recommended = normalizeRecommendationForBrewMode(recommended, brewMode, preferences);
-      const shadowTask = logRecipeShadow({
-        env,
-        requestId,
-        username,
-        bean: enrichedBean,
-        brewMode,
-        preferences,
-        legacyRecipe: recommended,
-        storeName: safeStoreName,
-        beanName: safeBeanName
-      });
-      if (typeof executionCtx?.waitUntil === "function") {
-        executionCtx.waitUntil(shadowTask);
-      } else {
-        shadowTask.catch((error) => {
-          console.warn(JSON.stringify({
-            event: "recipe_shadow_unhandled",
-            shadow: true,
-            requestId,
-            error: error instanceof Error ? error.message : String(error)
-          }));
-        });
-      }
-    } catch (error) {
-      if (error instanceof UpstreamMalformedError) {
-        console.warn({
-          event: "recipe_recommendation_failed",
-          requestId,
-          code: error.code,
-          category: "malformed"
-        });
-        throw new RecipeUpstreamMalformedError(
-          "The recipe recommendation service returned an unusable response"
-        );
-      }
-      if (error instanceof UpstreamError) {
-        console.warn({
-          event: "recipe_recommendation_failed",
-          requestId,
-          code: error.code,
-          category: "provider"
-        });
-        throw new RecipeUpstreamError("The recipe recommendation service is temporarily unavailable");
-      }
-      throw error;
-    }
-    const { icedServing, ...recipeCore } = recommended;
-    recipe = {
-      ...recipeCore,
-      name: recipeName,
-      machine: "xBloom Studio",
-      dripper: "Omni",
+    const hybrid = await recommendHybridTuning(
+      enrichedBean,
       brewMode,
-      bean: enrichedBean,
-      ...(engineMeta ? {
-        profile: engineMeta.profile,
-        rulesVersion: engineMeta.rulesVersion,
-        fingerprint: engineMeta.fingerprint
-      } : {}),
-      ...icedServing === null ? {} : { icedServing }
-    };
+      env,
+      plan,
+      effectiveEngineMeta.complaint
+    );
+    if (hybrid) {
+      recipe = buildTableRecipe({
+        profile,
+        brewMode,
+        finalDrinkMl: tableFinalDrinkMl,
+        beanMeta: enrichedBean,
+        username,
+        roastery: safeStoreName,
+        beanName: safeBeanName,
+        fingerprint: effectiveEngineMeta.fingerprint,
+        tuning: hybrid.tuning,
+        engine: "hybrid",
+        engineVersion: effectiveEngineMeta.engineVersion,
+        tasteRationale: hybrid.tasteRationale,
+        retuneRevision: effectiveEngineMeta.revision,
+        ratingComplaint: effectiveEngineMeta.complaint
+      });
+      try {
+        validateRecipeInvariants(recipe);
+      } catch (error) {
+        console.warn({
+          event: "hybrid_recipe_fallback",
+          reason: "post_build_validation_failed",
+          error: error instanceof Error ? error.message : String(error)
+        });
+        recipe = fallbackRecipe;
+      }
+    } else {
+      recipe = fallbackRecipe;
+    }
+  } else {
+    throw new InternalError('RECIPE_ENGINE must be "table"');
   }
   validateRecipeInvariants(recipe);
   const recipeId = crypto.randomUUID();
@@ -4124,7 +4462,8 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
     source: "web",
     profile: effectiveEngineMeta?.profile ?? null,
     rulesVersion: effectiveEngineMeta?.rulesVersion ?? null,
-    fingerprint: effectiveEngineMeta?.fingerprint ?? null
+    fingerprint: effectiveEngineMeta?.fingerprint ?? null,
+    retuneRevision: effectiveEngineMeta?.revision ?? 0
   };
   if (confirmationId) {
     await storeRecipeAndCompleteConfirmation(env.DB, {
@@ -4272,6 +4611,8 @@ async function handleGetRecipe(request, env, requestId, recipeId) {
   }
   if (recipe && typeof recipe === "object" && !Array.isArray(recipe)) {
     recipe.rating = row.rating ?? null;
+    recipe.ratingComplaint = row.rating_complaint ?? null;
+    recipe.retuneRevision = row.retune_revision ?? recipe.retuneRevision ?? 0;
   }
   return new Response(JSON.stringify({ ok: true, requestId, id: row.id, recipe }), {
     status: 200,
@@ -4295,25 +4636,177 @@ async function handleRateRecipe(request, env, requestId, recipeId) {
   if (value !== 1 && value !== -1 && value !== 0) {
     throw new ClientError("Rating value must be 1, -1, or 0");
   }
+  const complaint = parseRecipeComplaint(body.complaint);
+  if (value === -1 && !complaint) {
+    throw new ClientError("Choose what was wrong with the cup");
+  }
   const row = await findRecipeById(env.DB, recipeId);
   if (!row || row.owner_id !== ctx.userId) {
     throw new NotFoundError("Recipe not found");
   }
   const now = Date.now();
   const rating = value === 0 ? null : value;
-  await env.DB.prepare("UPDATE recipes SET rating = ?, rated_at = ?, updated_at = ? WHERE id = ? AND owner_id = ?").bind(
+  const storedComplaint = rating === -1 ? complaint : null;
+  await env.DB.prepare("UPDATE recipes SET rating = ?, rating_complaint = ?, rated_at = ?, updated_at = ? WHERE id = ? AND owner_id = ?").bind(
     rating,
+    storedComplaint,
     rating === null ? null : now,
     now,
     recipeId,
     ctx.userId
   ).run();
-  return new Response(JSON.stringify({ ok: true, requestId, id: recipeId, rating }), {
+  return new Response(JSON.stringify({ ok: true, requestId, id: recipeId, rating, complaint: storedComplaint }), {
     status: 200,
     headers: { "Content-Type": "application/json;charset=UTF-8" }
   });
 }
 __name(handleRateRecipe, "handleRateRecipe");
+async function handleRetuneRecipe(request, env, requestId, recipeId, executionCtx) {
+  enforceSameOrigin(request);
+  const ctx = await requireAuth(request, env);
+  const row = await findRecipeById(env.DB, recipeId);
+  if (!row || row.owner_id !== ctx.userId) {
+    throw new NotFoundError("Recipe not found");
+  }
+  if (row.rating !== -1 || !row.rating_complaint) {
+    throw new ClientError("Rate this recipe as Needs work and choose the problem before re-tuning.");
+  }
+  const complaint = parseRecipeComplaint(row.rating_complaint);
+  if (!complaint) {
+    throw new ClientError("Choose what was wrong with the cup before re-tuning.");
+  }
+  let priorRecipe;
+  try {
+    priorRecipe = JSON.parse(row.recipe_json);
+  } catch {
+    throw new NotFoundError("Recipe not found");
+  }
+  const brewMode = priorRecipe?.brewMode === "hot" ? "hot" : "cold";
+  const profile = isValidRecipeProfile(row.profile ?? priorRecipe?.profile) ? row.profile ?? priorRecipe.profile : DEFAULT_RECIPE_PROFILE;
+  const storeName = sanitizeModelString(row.store_name ?? priorRecipe?.bean?.storeName ?? "", 100);
+  const beanName = sanitizeModelString(row.bean_name ?? priorRecipe?.bean?.beanName ?? "", 100);
+  if (!storeName || !beanName) {
+    throw new ClientError("This recipe is missing bean identity and cannot be re-tuned.");
+  }
+  const finalDrinkMl = brewMode === "cold" ? priorRecipe?.icedServing?.totalBeverageMl : priorRecipe?.totalVolumeMl;
+  if (!Number.isInteger(finalDrinkMl)) {
+    throw new ClientError("This recipe is missing the drink size and cannot be re-tuned.");
+  }
+  const tableFinalDrinkMl = selectTableFinalDrinkMl(brewMode, finalDrinkMl);
+  const normalizedBeanKey = beanProfileCacheKey(storeName, beanName);
+  const currentRevision = Math.max(
+    await getBeanRecipeRevision(env.DB, {
+      ownerId: ctx.userId,
+      normalizedKey: normalizedBeanKey,
+      brewMode,
+      profile,
+      finalDrinkMl: tableFinalDrinkMl,
+      engineVersion: RECIPE_ENGINE_VERSION
+    }),
+    Number.isInteger(row.retune_revision) ? row.retune_revision : 0,
+    Number.isInteger(priorRecipe?.retuneRevision) ? priorRecipe.retuneRevision : 0
+  );
+  const nextRevision = currentRevision + 1;
+  const fingerprint = await recipeFingerprint({
+    roastery: storeName,
+    beanName,
+    brewMode,
+    finalDrinkMl: tableFinalDrinkMl,
+    profile,
+    rulesVersion: RECIPE_RULES_VERSION,
+    revision: nextRevision,
+    engineVersion: RECIPE_ENGINE_VERSION
+  });
+  const existingRetune = await findRecipeByFingerprint(env.DB, ctx.userId, fingerprint);
+  if (existingRetune) {
+    await rememberBeanRecipeRevision(env.DB, {
+      ownerId: ctx.userId,
+      normalizedKey: normalizedBeanKey,
+      brewMode,
+      profile,
+      finalDrinkMl: tableFinalDrinkMl,
+      engineVersion: RECIPE_ENGINE_VERSION,
+      revision: nextRevision
+    });
+    return recipeResponse(
+      requestId,
+      existingRetune.id,
+      JSON.parse(existingRetune.recipe_json),
+      200,
+      {
+        cached: true,
+        profile: existingRetune.profile ?? profile,
+        rulesVersion: existingRetune.rules_version ?? RECIPE_RULES_VERSION
+      }
+    );
+  }
+  const sanitizedBean = sanitizeBeanMetadata({
+    ...(priorRecipe?.bean && typeof priorRecipe.bean === "object" ? priorRecipe.bean : {}),
+    storeName,
+    beanName
+  });
+  let response;
+  try {
+    response = await generateAndStoreRecipe(
+      env,
+      requestId,
+      ctx.userId,
+      ctx.username,
+      sanitizedBean,
+      brewMode,
+      { finalDrinkMl: tableFinalDrinkMl },
+      null,
+      {},
+      {
+        profile,
+        rulesVersion: RECIPE_RULES_VERSION,
+        fingerprint,
+        revision: nextRevision,
+        engineVersion: RECIPE_ENGINE_VERSION,
+        complaint
+      },
+      executionCtx
+    );
+  } catch (error) {
+    const createdByRace = await findRecipeByFingerprint(env.DB, ctx.userId, fingerprint).catch(
+      () => null
+    );
+    if (createdByRace) {
+      await rememberBeanRecipeRevision(env.DB, {
+        ownerId: ctx.userId,
+        normalizedKey: normalizedBeanKey,
+        brewMode,
+        profile,
+        finalDrinkMl: tableFinalDrinkMl,
+        engineVersion: RECIPE_ENGINE_VERSION,
+        revision: nextRevision
+      });
+      return recipeResponse(
+        requestId,
+        createdByRace.id,
+        JSON.parse(createdByRace.recipe_json),
+        200,
+        {
+          cached: true,
+          profile: createdByRace.profile ?? profile,
+          rulesVersion: createdByRace.rules_version ?? RECIPE_RULES_VERSION
+        }
+      );
+    }
+    throw error;
+  }
+  await rememberBeanRecipeRevision(env.DB, {
+    ownerId: ctx.userId,
+    normalizedKey: normalizedBeanKey,
+    brewMode,
+    profile,
+    finalDrinkMl: tableFinalDrinkMl,
+    engineVersion: RECIPE_ENGINE_VERSION,
+    revision: nextRevision
+  });
+  return response;
+}
+__name(handleRetuneRecipe, "handleRetuneRecipe");
 function parseBrewMode(formData) {
   const raw = formData.get("brewMode");
   if (raw === null) return "cold";
@@ -4412,7 +4905,7 @@ function secureApiResponse(response) {
   });
 }
 __name(secureApiResponse, "secureApiResponse");
-var TASTE_STYLE_FRONTEND_VERSION = "phase3-cache-confirmed-roast-no-unknown-process-20260703";
+var TASTE_STYLE_FRONTEND_VERSION = "hybrid-adaptive-retune-20260703";
 function patchRecipeStyleFrontendScript(script) {
   let patched = script;
   patched = patched.replace(
@@ -4455,7 +4948,7 @@ function patchRecipeStyleFrontendScript(script) {
   );
   patched = patched.replace(
     'const Km={light:"Light Roast",medium:"Medium Roast",dark:"Dark Roast"};function ed({recipe:o,recipeId:c,readOnly:a=!1,backHref:d="/",backLabel:p="Back for a New Recipe"}){const v=o.brewMode==="cold";return',
-    'const Km={light:"Light Roast",medium_light:"Medium-light Roast",medium:"Medium Roast",medium_dark:"Medium-dark Roast",dark:"Dark Roast",unknown:"Unknown Roast"};function ed({recipe:o,recipeId:c,readOnly:a=!1,backHref:d="/",backLabel:p="Back for a New Recipe"}){const v=o.brewMode==="cold",[h,x]=N.useState(o.rating??null),[S,E]=N.useState(null),[M]=N.useState(()=>{try{const b=sessionStorage.getItem("xbloom:cachedRecipe")===c;b&&sessionStorage.removeItem("xbloom:cachedRecipe");return b}catch{return!1}}),profileLabels={bright_clean:"☀️ Bright & fruity",bright_funky:"🍓 Funky natural",neutral_classic:"⚖️ Classic balanced",dark_roasty:"🍫 Dark & roasty"},actualProfileLabel=o.profile?profileLabels[o.profile]||o.profile:null;async function C(b){const z=h===b?0:b;x(z===0?null:z),E(null);try{const T=await qe(`/api/recipes/${encodeURIComponent(c)}/rating`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({value:z})});x(T.rating??null)}catch(T){E(T instanceof De?T.message:"Could not save rating.")}}return'
+    'const Km={light:"Light Roast",medium_light:"Medium-light Roast",medium:"Medium Roast",medium_dark:"Medium-dark Roast",dark:"Dark Roast",unknown:"Unknown Roast"};function ed({recipe:o,recipeId:c,readOnly:a=!1,backHref:d="/",backLabel:p="Back for a New Recipe"}){const v=o.brewMode==="cold",[h,x]=N.useState(o.rating??null),[S,E]=N.useState(null),[B,Q]=N.useState(o.ratingComplaint??null),[R,H]=N.useState(!1),[M]=N.useState(()=>{try{const b=sessionStorage.getItem("xbloom:cachedRecipe")===c;b&&sessionStorage.removeItem("xbloom:cachedRecipe");return b}catch{return!1}}),profileLabels={bright_clean:"☀️ Bright & fruity",bright_funky:"🍓 Funky natural",neutral_classic:"⚖️ Classic balanced",dark_roasty:"🍫 Dark & roasty"},actualProfileLabel=o.profile?profileLabels[o.profile]||o.profile:null,complaintChoices=[["sour","Sour"],["bitter","Bitter"],["weak","Weak / no taste"],["harsh","Harsh"]];async function C(b,z=null){const T=h===b&&b!==-1?0:b;if(T===-1&&!z){x(-1),Q(null),E(null);return}x(T===0?null:T),Q(T===-1?z:null),E(null);try{const A=await qe(`/api/recipes/${encodeURIComponent(c)}/rating`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({value:T,complaint:z})});x(A.rating??null),Q(A.complaint??null)}catch(A){E(A instanceof De?A.message:"Could not save rating.")}}async function G(){if(!B){E("Choose what was wrong first.");return}H(!0),E(null);try{const b=await qe(`/api/recipes/${encodeURIComponent(c)}/retune`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});window.location.href=`/recipes/${b.id}`}catch(b){E(b instanceof De?b.message:"Could not re-tune this recipe.")}finally{H(!1)}}return'
   );
   patched = patched.replace(
     'children:v?"V60":"Hot Pour-Over"',
@@ -4463,11 +4956,11 @@ function patchRecipeStyleFrontendScript(script) {
   );
   patched = patched.replace(
     'o.bean.origin&&i.jsx("p",{className:"text-ivory/70 text-sm",children:o.bean.origin})',
-    'o.bean.origin&&i.jsx("p",{className:"text-ivory/70 text-sm",children:o.bean.origin}),actualProfileLabel&&i.jsx("p",{className:"mt-3 inline-flex rounded-full bg-sage/20 px-3 py-1 text-xs font-semibold text-sage",children:actualProfileLabel}),M&&i.jsx("p",{className:"mt-3 inline-flex rounded-full bg-sage/20 px-3 py-1 text-xs font-semibold text-sage",children:"Saved recipe — same bean as before"})'
+    'o.bean.origin&&i.jsx("p",{className:"text-ivory/70 text-sm",children:o.bean.origin}),actualProfileLabel&&i.jsx("p",{className:"mt-3 inline-flex rounded-full bg-sage/20 px-3 py-1 text-xs font-semibold text-sage",children:actualProfileLabel}),o.tasteRationale&&i.jsx("p",{className:"mt-3 rounded-card bg-ivory/10 px-3 py-2 text-xs text-ivory/80",children:o.tasteRationale}),M&&i.jsx("p",{className:"mt-3 inline-flex rounded-full bg-sage/20 px-3 py-1 text-xs font-semibold text-sage",children:"Saved recipe — same bean as before"})'
   );
   patched = patched.replace(
     ']}),!a&&i.jsxs("section",{"aria-labelledby":"bridge-heading"',
-    ']}),!a&&i.jsxs("section",{"aria-labelledby":"rating-heading",children:[i.jsx("h2",{id:"rating-heading",className:"font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3",children:"How was the cup?"}),i.jsxs("div",{className:"bg-white rounded-card p-4 space-y-3",children:[i.jsx("p",{className:"text-sm text-espresso/70",children:"Your feedback helps calibrate future recipes."}),i.jsxs("div",{className:"grid grid-cols-2 gap-3",children:[i.jsx("button",{type:"button","aria-pressed":h===1,onClick:()=>C(1),className:`min-h-touch rounded-card border px-4 py-3 font-body font-semibold ${h===1?"border-sage bg-sage/20 text-espresso":"border-sage/30 text-espresso"}`,children:"👍 Good"}),i.jsx("button",{type:"button","aria-pressed":h===-1,onClick:()=>C(-1),className:`min-h-touch rounded-card border px-4 py-3 font-body font-semibold ${h===-1?"border-terracotta bg-terracotta/10 text-espresso":"border-sage/30 text-espresso"}`,children:"👎 Needs work"})]}),S&&i.jsx("p",{role:"alert",className:"text-xs text-red-700",children:S})]})]}),!a&&i.jsxs("section",{"aria-labelledby":"bridge-heading"'
+    ']}),!a&&i.jsxs("section",{"aria-labelledby":"rating-heading",children:[i.jsx("h2",{id:"rating-heading",className:"font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3",children:"How was the cup?"}),i.jsxs("div",{className:"bg-white rounded-card p-4 space-y-3",children:[i.jsx("p",{className:"text-sm text-espresso/70",children:"Your feedback helps calibrate future recipes."}),i.jsxs("div",{className:"grid grid-cols-2 gap-3",children:[i.jsx("button",{type:"button","aria-pressed":h===1,onClick:()=>C(1),className:`min-h-touch rounded-card border px-4 py-3 font-body font-semibold ${h===1?"border-sage bg-sage/20 text-espresso":"border-sage/30 text-espresso"}`,children:"👍 Good"}),i.jsx("button",{type:"button","aria-pressed":h===-1,onClick:()=>C(-1),className:`min-h-touch rounded-card border px-4 py-3 font-body font-semibold ${h===-1?"border-terracotta bg-terracotta/10 text-espresso":"border-sage/30 text-espresso"}`,children:"👎 Needs work"})]}),h===-1&&i.jsxs("div",{className:"rounded-card border border-terracotta/20 bg-terracotta/5 p-3",children:[i.jsx("p",{className:"text-xs font-semibold uppercase tracking-widest text-terracotta",children:"What was wrong?"}),i.jsx("div",{className:"mt-2 grid grid-cols-2 gap-2",children:complaintChoices.map(([b,z])=>i.jsx("button",{type:"button","aria-pressed":B===b,onClick:()=>C(-1,b),className:`rounded-2xl border px-3 py-2 text-sm font-semibold ${B===b?"border-terracotta bg-terracotta/20 text-espresso":"border-sage/30 text-espresso"}`,children:z},b))})]}),h===-1&&B&&i.jsx("button",{type:"button",disabled:R,onClick:G,className:"w-full min-h-touch rounded-card bg-espresso px-4 py-3 font-semibold text-ivory disabled:opacity-50",children:R?"Re-tuning…":"Re-tune this recipe"}),S&&i.jsx("p",{role:"alert",className:"text-xs text-red-700",children:S})]})]}),!a&&i.jsxs("section",{"aria-labelledby":"bridge-heading"'
   );
   return patched;
 }
@@ -4562,6 +5055,13 @@ var index_default = {
         if (method !== "POST") throw new MethodNotAllowedError("Use POST");
         return secureApiResponse(
           await handleRateRecipe(request, env, requestId, recipeRatingMatch[1])
+        );
+      }
+      const recipeRetuneMatch = pathname.match(/^\/api\/recipes\/([^/]+)\/retune$/);
+      if (recipeRetuneMatch) {
+        if (method !== "POST") throw new MethodNotAllowedError("Use POST");
+        return secureApiResponse(
+          await handleRetuneRecipe(request, env, requestId, recipeRetuneMatch[1], executionCtx)
         );
       }
       const recipeMatch = pathname.match(/^\/api\/recipes\/([^/]+)(\/bridge-jobs)?$/);

@@ -2,11 +2,20 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const { buildRecipe, getProfileOptions, RULES_VERSION, selectTableFinalDrinkMl } = (await import(
-  String("../src/recipeEngine.js")
-)) as {
+const {
+  buildRecipe,
+  ENGINE_VERSION,
+  getProfileOptions,
+  getRecipePlan,
+  RULES_VERSION,
+  selectTableFinalDrinkMl,
+} = (await import(String("../src/recipeEngine.js"))) as {
   buildRecipe: (args: Record<string, unknown>) => {
     name: string;
+    engine?: string;
+    engineVersion?: string;
+    tasteRationale?: string;
+    retuneRevision?: number;
     profile: string;
     rulesVersion: string;
     machine: string;
@@ -27,7 +36,21 @@ const { buildRecipe, getProfileOptions, RULES_VERSION, selectTableFinalDrinkMl }
       agitationBefore: boolean;
     }>;
   };
+  ENGINE_VERSION: string;
   getProfileOptions: () => unknown[];
+  getRecipePlan: (args: Record<string, unknown>) => {
+    constraints: {
+      grindBand: number[];
+      tempRange: number[];
+      rpmRange: number[];
+      fixed: {
+        doseG: number;
+        ratioN: number;
+        waterMl: number;
+        pourVolumes: number[];
+      };
+    };
+  };
   RULES_VERSION: string;
   selectTableFinalDrinkMl: (brewMode: "hot" | "cold", finalDrinkMl: number) => number;
 };
@@ -39,7 +62,16 @@ const recipeTable = JSON.parse(
   readFileSync(fileURLToPath(String(new URL("../src/recipe-table.json", import.meta.url))), "utf8"),
 ) as {
   rulesVersion: string;
-  recipes: Record<string, Record<"hot" | "cold", { sizes: Record<string, unknown> }>>;
+  recipes: Record<
+    string,
+    Record<
+      "hot" | "cold",
+      {
+        params: { grindBand: number[]; tempRange: number[] };
+        sizes: Record<string, unknown>;
+      }
+    >
+  >;
 };
 
 const beanMeta = {
@@ -67,7 +99,7 @@ describe("buildRecipe", () => {
 
     expect(recipe.name).toBe("admin - Cold/Qayel/Yemen");
     expect(recipe.profile).toBe("neutral_classic");
-    expect(recipe.rulesVersion).toBe("1.0.2");
+    expect(recipe.rulesVersion).toBe(recipeTable.rulesVersion);
     expect(recipe.machine).toBe("xBloom Studio");
     expect(recipe.dripper).toBe("Omni");
     expect(recipe.totalVolumeMl).toBe(176);
@@ -83,6 +115,73 @@ describe("buildRecipe", () => {
       pauseSec: 30,
       pattern: "spiral",
       agitationBefore: false,
+    });
+  });
+
+  it("lets hybrid tuning change only guardrailed machine variables, not table-fixed structure", () => {
+    const plan = getRecipePlan({ profile: "bright_clean", brewMode: "hot", finalDrinkMl: 240 });
+    const minTemp = plan.constraints.tempRange[0] ?? 0;
+    const maxTemp = plan.constraints.tempRange[1] ?? minTemp;
+    const recipe = buildRecipe({
+      profile: "bright_clean",
+      brewMode: "hot",
+      finalDrinkMl: 240,
+      beanMeta,
+      username: "admin",
+      roastery: "OPT",
+      beanName: "Yemenia",
+      engine: "hybrid",
+      engineVersion: ENGINE_VERSION,
+      tasteRationale: "Natural Yemen gets finer grind and hotter first pours for fruit clarity.",
+      retuneRevision: 1,
+      tuning: {
+        grindSize: plan.constraints.grindBand[0],
+        rpm: plan.constraints.rpmRange[1],
+        pours: [
+          {
+            tempC: plan.constraints.tempRange[1],
+            flowRateMlPerSec: 3,
+            pauseSec: 45,
+            pattern: "spiral",
+            agitationBefore: true,
+            agitationAfter: false,
+          },
+          {
+            tempC: maxTemp - 1,
+            flowRateMlPerSec: 3.3,
+            pauseSec: 18,
+            pattern: "circular",
+            agitationBefore: false,
+            agitationAfter: false,
+          },
+          {
+            tempC: minTemp,
+            flowRateMlPerSec: 3.5,
+            pauseSec: 5,
+            pattern: "centered",
+            agitationBefore: false,
+            agitationAfter: true,
+          },
+        ],
+      },
+    });
+
+    expect(recipe.engine).toBe("hybrid");
+    expect(recipe.engineVersion).toBe(ENGINE_VERSION);
+    expect(recipe.retuneRevision).toBe(1);
+    expect(recipe.tasteRationale).toContain("Yemen");
+    expect(recipe.doseG).toBe(plan.constraints.fixed.doseG);
+    expect(recipe.brewRatio).toBe(`1:${plan.constraints.fixed.ratioN}`);
+    expect(recipe.totalVolumeMl).toBe(plan.constraints.fixed.waterMl);
+    expect(recipe.pours.map((pour) => pour.volumeMl)).toEqual(plan.constraints.fixed.pourVolumes);
+    expect(recipe.grindSize).toBe(plan.constraints.grindBand[0]);
+    expect(recipe.rpm).toBe(plan.constraints.rpmRange[1]);
+    expect(recipe.pours[0]).toMatchObject({
+      tempC: maxTemp,
+      flowRateMlPerSec: 3,
+      pauseSec: 45,
+      pattern: "spiral",
+      agitationBefore: true,
     });
   });
 
@@ -141,6 +240,26 @@ describe("buildRecipe", () => {
   it("single-sources the fingerprint and recipe engine rules version from the table", () => {
     expect(RULES_VERSION).toBe(recipeTable.rulesVersion);
     expect(FINGERPRINT_RULES_VERSION).toBe(recipeTable.rulesVersion);
+  });
+
+  it("widens hot extraction bands under the approved hybrid rules version", () => {
+    expect(recipeTable.rulesVersion).toBe("1.1.0");
+    expect(recipeTable.recipes.bright_clean?.hot.params).toMatchObject({
+      grindBand: [30, 42],
+      tempRange: [91, 95],
+    });
+    expect(recipeTable.recipes.bright_funky?.hot.params).toMatchObject({
+      grindBand: [32, 44],
+      tempRange: [88, 95],
+    });
+    expect(recipeTable.recipes.neutral_classic?.hot.params).toMatchObject({
+      grindBand: [36, 48],
+      tempRange: [90, 95],
+    });
+    expect(recipeTable.recipes.dark_roasty?.hot.params).toMatchObject({
+      grindBand: [40, 52],
+      tempRange: [84, 95],
+    });
   });
 
   it("keeps neutral_classic hot on the approved 1:15 ladder", () => {

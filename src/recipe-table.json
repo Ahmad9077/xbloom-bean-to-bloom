@@ -1,5 +1,5 @@
 {
-  "rulesVersion": "1.0.2",
+  "rulesVersion": "1.1.0",
   "machine": "xBloom Studio",
   "brewMethod": "V60",
   "authoring_note": "Single source of truth for all recipes. Edit only via CALIBRATION.md rules. Every change must pass validate-recipe-table.mjs and bump rulesVersion.",
@@ -54,7 +54,7 @@
       "hot": {
         "params": {
           "grindSize": 38,
-          "grindBand": [34, 42],
+          "grindBand": [30, 42],
           "rpm": 90,
           "bloomFlow": 3.5,
           "mainFlow": 3.1,
@@ -100,11 +100,11 @@
       "hot": {
         "params": {
           "grindSize": 40,
-          "grindBand": [36, 44],
+          "grindBand": [32, 44],
           "rpm": 80,
           "bloomFlow": 3.5,
           "mainFlow": 3.0,
-          "tempRange": [88, 93],
+          "tempRange": [88, 95],
           "tempsByPourCount": { "4": [92, 91, 90, 90] },
           "pausesByPourCount": { "4": [35, 12, 10, 5] },
           "patternsByPourCount": { "4": ["spiral", "circular", "spiral", "centered"] },
@@ -146,7 +146,7 @@
       "hot": {
         "params": {
           "grindSize": 44,
-          "grindBand": [40, 48],
+          "grindBand": [36, 48],
           "rpm": 80,
           "bloomFlow": 3.5,
           "mainFlow": 3.2,
@@ -192,11 +192,11 @@
       "hot": {
         "params": {
           "grindSize": 48,
-          "grindBand": [44, 52],
+          "grindBand": [40, 52],
           "rpm": 70,
           "bloomFlow": 3.5,
           "mainFlow": 3.3,
-          "tempRange": [84, 91],
+          "tempRange": [84, 95],
           "tempsByPourCount": { "4": [88, 87, 86, 86] },
           "pausesByPourCount": { "4": [25, 10, 8, 5] },
           "patternsByPourCount": { "4": ["spiral", "circular", "spiral", "centered"] },

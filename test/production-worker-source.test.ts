@@ -94,6 +94,34 @@ describe("production Worker source safeguards", () => {
     expect(workerSource).toContain('RECIPE_ENGINE must be "table"');
   });
 
+  it("uses a constrained hybrid recipe tuner inside the table engine", () => {
+    expect(workerSource).toContain("async function recommendHybridTuning");
+    expect(workerSource).toContain('name: "xbloom_hybrid_recipe_tuning"');
+    expect(workerSource).toContain("getRecipePlan({");
+    expect(workerSource).toContain('engine: "hybrid"');
+    expect(workerSource).toContain('engine: "table_fallback"');
+    expect(workerSource).toContain("tasteRationale");
+    expect(workerSource).toContain("OpenAI hybrid pour count does not match the table cell");
+    expect(workerSource).toContain("Table fallback used because adaptive tuning was unavailable.");
+    expect(workerSource).not.toContain("recommended = await recommendRecipe(enrichedBean");
+  });
+
+  it("includes retune revision and engine version in recipe fingerprints", () => {
+    expect(workerSource).toContain("engineVersion: RECIPE_ENGINE_VERSION");
+    expect(workerSource).toContain("revision,");
+    expect(workerSource).toContain("await getBeanRecipeRevision(");
+    expect(workerSource).toContain("await rememberBeanRecipeRevision(");
+  });
+
+  it("stores low-rating complaints and exposes a retune endpoint", () => {
+    expect(workerSource).toContain("rating_complaint");
+    expect(workerSource).toContain("function parseRecipeComplaint");
+    expect(workerSource).toContain("Choose sour, bitter, weak/no taste, or harsh");
+    expect(workerSource).toContain("async function handleRetuneRecipe");
+    expect(workerSource).toContain("/api/recipes/");
+    expect(workerSource).toContain("/retune");
+  });
+
   it("uses non-colliding confirmation name limits", () => {
     expect(workerSource).toContain("var CONFIRMED_STORE_NAME_MAX_CHARS = 40;");
     expect(workerSource).toContain("var CONFIRMED_BEAN_NAME_MAX_CHARS = 60;");

@@ -2,6 +2,9 @@ import table from "./recipe-table.json" with { type: "json" };
 
 export const RULES_VERSION = table.rulesVersion;
 export const PROFILE_IDS = Object.freeze(Object.keys(table.recipes));
+export const ENGINE_VERSION = `hybrid-${table.rulesVersion}`;
+
+const FLOW_CHOICES = Object.freeze([3, 3.1, 3.2, 3.3, 3.4, 3.5]);
 
 export function getProfileOptions() {
   return PROFILE_IDS.map((id) => ({
@@ -33,18 +36,15 @@ export function buildRecipe({
   roastery,
   beanName,
   fingerprint,
+  tuning,
+  engine,
+  engineVersion,
+  tasteRationale,
+  retuneRevision,
+  ratingComplaint,
 }) {
-  assertProfile(profile);
-  assertBrewMode(brewMode);
-
-  const modeTable = table.recipes[profile][brewMode];
-  const cell = modeTable.sizes[String(finalDrinkMl)];
-  if (!cell) {
-    throw new Error(`No recipe-table cell for ${profile}.${brewMode}.${finalDrinkMl}`);
-  }
-
-  const pourCount = cell.pours.length;
-  const params = modeTable.params;
+  const plan = getRecipePlan({ profile, brewMode, finalDrinkMl });
+  const { cell, params, pourCount } = plan;
   const temps = params.tempsByPourCount[String(pourCount)];
   const pauses = params.pausesByPourCount[String(pourCount)];
   const patterns = params.patternsByPourCount[String(pourCount)];
@@ -58,12 +58,14 @@ export function buildRecipe({
   const pours = cell.pours.map((pour, index) => ({
     label: pour.label,
     volumeMl: pour.volumeMl,
-    tempC: temps[index],
-    flowRateMlPerSec: index === 0 ? params.bloomFlow : params.mainFlow,
-    pauseSec: pauses[index],
-    pattern: patterns[index],
-    agitationBefore: agitateBefore[index],
-    agitationAfter: agitateAfter[index],
+    tempC: tuning?.pours?.[index]?.tempC ?? temps[index],
+    flowRateMlPerSec:
+      tuning?.pours?.[index]?.flowRateMlPerSec ??
+      (index === 0 ? params.bloomFlow : params.mainFlow),
+    pauseSec: tuning?.pours?.[index]?.pauseSec ?? pauses[index],
+    pattern: tuning?.pours?.[index]?.pattern ?? patterns[index],
+    agitationBefore: tuning?.pours?.[index]?.agitationBefore ?? agitateBefore[index],
+    agitationAfter: tuning?.pours?.[index]?.agitationAfter ?? agitateAfter[index],
   }));
 
   const recipe = {
@@ -74,13 +76,18 @@ export function buildRecipe({
     brewRatio: `1:${cell.ratioN}`,
     totalVolumeMl: cell.waterMl,
     doseG: cell.doseG,
-    grindSize: params.grindSize,
-    rpm: params.rpm,
+    grindSize: tuning?.grindSize ?? params.grindSize,
+    rpm: tuning?.rpm ?? params.rpm,
     pours,
     bean: beanMeta,
     profile,
     rulesVersion: table.rulesVersion,
     ...(fingerprint ? { fingerprint } : {}),
+    ...(engine ? { engine } : {}),
+    ...(engineVersion ? { engineVersion } : {}),
+    ...(tasteRationale ? { tasteRationale } : {}),
+    ...(Number.isInteger(retuneRevision) ? { retuneRevision } : {}),
+    ...(ratingComplaint ? { ratingComplaint } : {}),
   };
 
   if (brewMode === "cold") {
@@ -93,6 +100,41 @@ export function buildRecipe({
   }
 
   return recipe;
+}
+
+export function getRecipePlan({ profile, brewMode, finalDrinkMl }) {
+  assertProfile(profile);
+  assertBrewMode(brewMode);
+  const modeTable = table.recipes[profile][brewMode];
+  const cell = modeTable.sizes[String(finalDrinkMl)];
+  if (!cell) {
+    throw new Error(`No recipe-table cell for ${profile}.${brewMode}.${finalDrinkMl}`);
+  }
+  const params = modeTable.params;
+  const pourCount = cell.pours.length;
+  return {
+    profile,
+    brewMode,
+    finalDrinkMl,
+    cell,
+    params,
+    pourCount,
+    constraints: {
+      grindBand: params.grindBand,
+      tempRange: params.tempRange,
+      rpmRange: [Math.max(60, params.rpm - 10), Math.min(120, params.rpm + 10)],
+      flowChoices: FLOW_CHOICES,
+      pauseRange: [2, 59],
+      patterns: ["centered", "spiral", "circular"],
+      fixed: {
+        doseG: cell.doseG,
+        ratioN: cell.ratioN,
+        waterMl: cell.waterMl,
+        pourVolumes: cell.pours.map((pour) => pour.volumeMl),
+        pourLabels: cell.pours.map((pour) => pour.label),
+      },
+    },
+  };
 }
 
 export function getRecipeCell({ profile, brewMode, finalDrinkMl }) {
