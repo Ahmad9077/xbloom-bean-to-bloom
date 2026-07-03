@@ -29,6 +29,14 @@ describe("production Worker source safeguards", () => {
     expect(workerSource).toContain("profileCacheRefresh");
   });
 
+  it("stores the user-confirmed roast level in the sticky cache", () => {
+    expect(workerSource).toContain("const classificationForCache = {");
+    expect(workerSource).toContain("roastLevel: confirmedBean.roastLevel");
+    expect(workerSource.indexOf("const classificationForCache = {")).toBeLessThan(
+      workerSource.indexOf("await safeRememberBeanProfile("),
+    );
+  });
+
   it("keeps bean profile cache fail-open for recipe confirmation", () => {
     expect(workerSource).toContain("async function safeFindBeanProfileCache");
     expect(workerSource).toContain("async function safeRememberBeanProfile");

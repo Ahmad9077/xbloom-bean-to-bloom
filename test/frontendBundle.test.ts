@@ -9,7 +9,7 @@ describe("production confirmation UI bundle patch", () => {
     expect(workerSource).toContain('children:"Brew profile"');
     expect(workerSource).toContain('children:["Preliminary guess: ",oe(ee)]');
     expect(workerSource).toContain("Final profile is chosen after you confirm the bean details.");
-    expect(workerSource).toContain('i.jsx("option",{value:"",children:"unknown"})');
+    expect(workerSource).not.toContain('i.jsx("option",{value:"",children:"unknown"})');
     expect(workerSource).not.toContain("ee&&(A.profile=ee)");
     expect(workerSource).not.toContain("Use detected");
     expect(workerSource).not.toContain("onClick:()=>se(A.id)");
