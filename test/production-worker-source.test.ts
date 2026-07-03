@@ -19,6 +19,22 @@ describe("production Worker source safeguards", () => {
     expect(workerSource).toContain("await rememberBeanProfile(env.DB, storeName, beanName");
   });
 
+  it("does not accept manual brew profile overrides from confirmation requests", () => {
+    expect(workerSource).not.toContain("manualProfileProvided");
+    expect(workerSource).not.toContain("manual profile override");
+    expect(workerSource).not.toContain("parseRecipeProfile(input.profile");
+    expect(workerSource).toContain('Object.prototype.hasOwnProperty.call(input, "profile")');
+    expect(workerSource).toContain(
+      "Brew profile is chosen automatically from confirmed bean details",
+    );
+  });
+
+  it("requires unknown roast level to be corrected before recommendation", () => {
+    expect(workerSource).toContain('if (bean.roastLevel === "unknown") missing.push("roastLevel")');
+    expect(workerSource).toContain('Z=rl!=="unknown"');
+    expect(workerSource).toContain('rl==="unknown"&&i.jsx("p"');
+  });
+
   it("does not allow environment drift back to the legacy free-form recipe engine", () => {
     expect(workerSource).toContain('RECIPE_ENGINE must be "table"');
   });
