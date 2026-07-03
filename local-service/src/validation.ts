@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { ErrorCode, ServiceError } from "./errors.js";
 
+const roastLevelSchema = z.enum([
+  "light",
+  "medium_light",
+  "medium",
+  "medium_dark",
+  "dark",
+  "unknown",
+]);
+
 const pourLabel = z
   .string()
   .refine((s) => s === "Bloom" || /^Pour \d+$/.test(s), "label must be 'Bloom' or 'Pour N'");
@@ -29,12 +38,13 @@ const bypassSchema = z.object({
 });
 
 const beanSchema = z.object({
+  storeName: z.string().max(100).optional(),
   beanName: z.string().max(100).optional(),
   coffeeType: z.string().max(100),
   variety: z.string().max(100),
   origin: z.string().max(100),
   processingMethod: z.string().max(100),
-  roastLevel: z.enum(["light", "medium", "dark"]),
+  roastLevel: roastLevelSchema,
   flavors: z.array(z.string().max(50)).max(20),
   description: z.string().max(200),
 });
@@ -64,7 +74,7 @@ const recipeSchema = z.object({
     .min(60)
     .max(120)
     .refine((v) => v % 10 === 0, "rpm must be a multiple of 10"),
-  pours: z.array(pourSchema).min(1),
+  pours: z.array(pourSchema).min(1).max(4),
   bypass: bypassSchema.optional(),
   bean: beanSchema.optional(),
   // brewMode and icedServing are accepted for schema completeness.
@@ -161,10 +171,10 @@ export function validateRequest(body: unknown): ValidatedRequest {
         422,
       );
     }
-    if (recipe.icedServing.iceG < 40 || recipe.icedServing.iceG > 160) {
+    if (recipe.icedServing.iceG < 100 || recipe.icedServing.iceG > 120) {
       throw new ServiceError(
         ErrorCode.VALIDATION_ERROR,
-        `Cold recipe icedServing.iceG must be 40..160; got ${recipe.icedServing.iceG}`,
+        `Cold recipe icedServing.iceG must be 100..120; got ${recipe.icedServing.iceG}`,
         422,
       );
     }
@@ -173,6 +183,13 @@ export function validateRequest(body: unknown): ValidatedRequest {
       throw new ServiceError(
         ErrorCode.VALIDATION_ERROR,
         `Cold recipe icedServing.totalBeverageMl must equal water+ice (${expectedTotal}); got ${recipe.icedServing.totalBeverageMl}`,
+        422,
+      );
+    }
+    if (expectedTotal < 270 || expectedTotal > 300) {
+      throw new ServiceError(
+        ErrorCode.VALIDATION_ERROR,
+        `Cold recipe total beverage must be 270..300 ml; got ${expectedTotal}`,
         422,
       );
     }

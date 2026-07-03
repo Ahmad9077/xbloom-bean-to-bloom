@@ -34,6 +34,28 @@ describe("validateRequest", () => {
     expect(result.confirmSave).toBe(true);
   });
 
+  it.each(["light", "medium_light", "medium", "medium_dark", "dark", "unknown"])(
+    "accepts Worker roast level %s in bean metadata",
+    (roastLevel) => {
+      const recipe = {
+        ...validRecipe,
+        bean: {
+          beanName: "LaPradera",
+          storeName: "Soil",
+          coffeeType: "Arabica",
+          variety: "Castillo",
+          origin: "Colombia",
+          processingMethod: "anaerobic honey",
+          roastLevel,
+          flavors: ["floral", "strawberry"],
+          description: "Bridge-compatible bean metadata",
+        },
+      };
+
+      expect(() => validateRequest({ recipe, confirmSave: true })).not.toThrow();
+    },
+  );
+
   it("accepts a valid dryRun request", () => {
     const result = validateRequest({ recipe: validRecipe, dryRun: true });
     expect(result.dryRun).toBe(true);
@@ -193,10 +215,10 @@ describe("validateRequest", () => {
 
   // ── brewMode and icedServing ─────────────────────────────────────────────────
 
-  // Canonical cold recipe fixture: 16 g dose, 1:10, 160 ml, 80 g ice → 240 ml total
+  // Canonical cold recipe fixture: 18 g dose, 1:10, 180 ml, 120 g ice → 300 ml total
   const coldPour = {
     label: "Bloom",
-    volumeMl: 160,
+    volumeMl: 180,
     tempC: 93,
     flowRateMlPerSec: 3.0,
     pauseSec: 30,
@@ -209,21 +231,21 @@ describe("validateRequest", () => {
     machine: "xBloom Studio",
     dripper: "Omni" as const,
     brewRatio: "1:10",
-    totalVolumeMl: 160,
-    doseG: 16,
+    totalVolumeMl: 180,
+    doseG: 18,
     grindSize: 19,
     rpm: 100,
     pours: [coldPour],
     brewMode: "cold" as const,
-    icedServing: { iceG: 80, totalBeverageMl: 240, instruction: "Serve over 80 g ice." },
+    icedServing: { iceG: 120, totalBeverageMl: 300, instruction: "Serve over 120 g ice." },
   };
 
   it("accepts cold recipe with correct icedServing and passes it through", () => {
     const result = validateRequest({ recipe: coldRecipe, confirmSave: true });
     expect(result.recipe.name).toBe("Ethiopia Iced Light Roast");
     expect(result.recipe.brewMode).toBe("cold");
-    expect(result.recipe.icedServing?.iceG).toBe(80);
-    expect(result.recipe.icedServing?.totalBeverageMl).toBe(240);
+    expect(result.recipe.icedServing?.iceG).toBe(120);
+    expect(result.recipe.icedServing?.totalBeverageMl).toBe(300);
   });
 
   it("accepts brewMode=hot without icedServing", () => {
@@ -257,7 +279,7 @@ describe("validateRequest", () => {
       brewRatio: "1:10",
       totalVolumeMl: 150, // 15×10 — consistent but wrong dose
       pours: [{ ...coldPour, volumeMl: 150 }],
-      icedServing: { iceG: 80, totalBeverageMl: 230, instruction: "ice" },
+      icedServing: { iceG: 120, totalBeverageMl: 270, instruction: "ice" },
     };
     expect(() => validateRequest({ recipe: bad, confirmSave: true })).not.toThrow();
   });
@@ -265,16 +287,16 @@ describe("validateRequest", () => {
   it("accepts a valid cold recipe with a different machine ratio", () => {
     const bad = {
       ...coldRecipe,
-      brewRatio: "1:14",
-      totalVolumeMl: 224, // 16×14
-      pours: [{ ...coldPour, volumeMl: 224 }],
-      icedServing: { iceG: 80, totalBeverageMl: 304, instruction: "ice" },
+      brewRatio: "1:9",
+      totalVolumeMl: 162, // 18×9
+      pours: [{ ...coldPour, volumeMl: 162 }],
+      icedServing: { iceG: 108, totalBeverageMl: 270, instruction: "ice" },
     };
     expect(() => validateRequest({ recipe: bad, confirmSave: true })).not.toThrow();
   });
 
-  it("rejects cold recipe with totalVolumeMl !== 160 (inconsistent with 1:10)", () => {
-    // totalVolumeMl 200 ≠ 16×10=160 — caught by ratio consistency check
+  it("rejects cold recipe with totalVolumeMl !== 180 (inconsistent with 1:10)", () => {
+    // totalVolumeMl 200 ≠ 18×10=180 — caught by ratio consistency check
     const bad = { ...coldRecipe, totalVolumeMl: 200 };
     expect(() => validateRequest({ recipe: bad, confirmSave: true })).toThrowError(
       expect.objectContaining({ code: ErrorCode.VALIDATION_ERROR }),
@@ -292,7 +314,7 @@ describe("validateRequest", () => {
   it("rejects cold recipe with wrong iceG", () => {
     const bad = {
       ...coldRecipe,
-      icedServing: { ...coldRecipe.icedServing, iceG: 200, totalBeverageMl: 360 },
+      icedServing: { ...coldRecipe.icedServing, iceG: 99, totalBeverageMl: 279 },
     };
     expect(() => validateRequest({ recipe: bad, confirmSave: true })).toThrowError(/iceG/);
   });
@@ -304,6 +326,19 @@ describe("validateRequest", () => {
     };
     expect(() => validateRequest({ recipe: bad, confirmSave: true })).toThrowError(
       /totalBeverageMl/,
+    );
+  });
+
+  it("rejects cold recipe outside the 270..300 ml final drink range", () => {
+    const bad = {
+      ...coldRecipe,
+      brewRatio: "1:12",
+      totalVolumeMl: 216,
+      pours: [{ ...coldPour, volumeMl: 216 }],
+      icedServing: { ...coldRecipe.icedServing, iceG: 120, totalBeverageMl: 336 },
+    };
+    expect(() => validateRequest({ recipe: bad, confirmSave: true })).toThrowError(
+      /total beverage/,
     );
   });
 

@@ -24,7 +24,7 @@ ensure_appium_uiautomator2_driver() {
     exit 1
   fi
 
-  if appium driver list --installed 2>/dev/null | grep -q "uiautomator2@"; then
+  if appium driver list --installed 2>&1 | grep -q "uiautomator2@"; then
     return
   fi
 
@@ -34,7 +34,7 @@ ensure_appium_uiautomator2_driver() {
     exit 1
   fi
 
-  if ! appium driver list --installed 2>/dev/null | grep -q "uiautomator2@"; then
+  if ! appium driver list --installed 2>&1 | grep -q "uiautomator2@"; then
     echo "Appium UiAutomator2 driver still unavailable after install" >&2
     exit 1
   fi

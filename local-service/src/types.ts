@@ -15,12 +15,13 @@ export interface Bypass {
 }
 
 export interface Bean {
+  storeName?: string | undefined;
   beanName?: string | undefined;
   coffeeType: string;
   variety: string;
   origin: string;
   processingMethod: string;
-  roastLevel: "light" | "medium" | "dark";
+  roastLevel: "light" | "medium_light" | "medium" | "medium_dark" | "dark" | "unknown";
   flavors: string[];
   description: string;
 }
@@ -71,6 +72,7 @@ export interface JobResult {
   dryRun: boolean;
   confirmed: boolean;
   recipeName: string;
+  shareLink?: string | undefined;
   message: string;
 }
 
