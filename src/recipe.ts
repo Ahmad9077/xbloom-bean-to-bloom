@@ -20,7 +20,7 @@ export const RECIPE_NAME_MAX_LEN = 200;
 // App-verified limits (Phase 2)
 // ---------------------------------------------------------------------------
 const DOSE_MIN = 5;
-const DOSE_MAX = 18;
+const DOSE_MAX = 25;
 const RATIO_MIN = 5;
 const RATIO_MAX = 25;
 const GRIND_MIN = 1;
@@ -239,13 +239,13 @@ function allocatePourVolumes(totalMl: number, roastLevel: RoastLevel): [number, 
  */
 export function generateRecipe(
   bean: BeanMetadata,
-  dripper: Dripper = "Omni",
+  dripper: Dripper = "Other",
   brewMode: BrewMode = "hot",
 ): Recipe {
   const params = ROAST_PARAMS[bean.roastLevel];
   const { grindDelta, tempDelta } = processingAdjustments(bean.processingMethod);
 
-  const doseG = 16; // fixed dose within 5..18 g range
+  const doseG = 16; // fixed dose within 5..25 g range
 
   // Cold: fixed 1:10 machine-water ratio regardless of roast.
   // Hot: use roast-derived ratio clamped to app bounds.

@@ -71,7 +71,7 @@ export function buildRecipe({
   const recipe = {
     name: recipeName,
     machine: "xBloom Studio",
-    dripper: "Omni",
+    dripper: "Other",
     brewMode,
     brewRatio: `1:${cell.ratioN}`,
     totalVolumeMl: cell.waterMl,

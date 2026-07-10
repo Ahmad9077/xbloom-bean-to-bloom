@@ -66,7 +66,7 @@ const recipeSchema = z.object({
   dripper: z.enum(["Omni", "xPod", "Other"]),
   brewRatio: z.string().regex(brewRatioPattern, "brewRatio must be '1:N'"),
   totalVolumeMl: z.number().int().positive(),
-  doseG: z.number().int().min(5).max(18),
+  doseG: z.number().int().min(5).max(25),
   grindSize: z.number().int().min(1).max(80),
   rpm: z
     .number()

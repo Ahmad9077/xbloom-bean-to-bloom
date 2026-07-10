@@ -49,7 +49,7 @@ beforeEach(() => {
 
 function mockOpenAI(bean = LIGHT_BEAN, brewMode: "cold" | "hot" = "cold") {
   visionBean = bean;
-  const generated = generateRecipe(bean, "Omni", brewMode);
+  const generated = generateRecipe(bean, "Other", brewMode);
   const {
     name: _name,
     machine: _machine,

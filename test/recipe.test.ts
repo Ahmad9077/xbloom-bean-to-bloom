@@ -150,12 +150,12 @@ describe("generateRecipe — app limit bounds", () => {
     }
   });
 
-  it("doseG is in range 5..18 and is an integer", () => {
+  it("doseG is in range 5..25 and is an integer", () => {
     for (const b of allBeans) {
       const r = generateRecipe(b);
       expect(Number.isInteger(r.doseG)).toBe(true);
       expect(r.doseG).toBeGreaterThanOrEqual(5);
-      expect(r.doseG).toBeLessThanOrEqual(18);
+      expect(r.doseG).toBeLessThanOrEqual(25);
     }
   });
 });
@@ -351,12 +351,12 @@ describe("generateRecipe — rounding edge cases", () => {
 
 describe("generateRecipe — cold mode", () => {
   it("cold recipe has brewMode=cold", () => {
-    expect(generateRecipe(LIGHT_BEAN, "Omni", "cold").brewMode).toBe("cold");
+    expect(generateRecipe(LIGHT_BEAN, "Other", "cold").brewMode).toBe("cold");
   });
 
   it("cold recipe uses fixed 1:10 machine-water ratio for all roast levels", () => {
     for (const bean of [LIGHT_BEAN, MEDIUM_BEAN, DARK_BEAN]) {
-      const r = generateRecipe(bean, "Omni", "cold");
+      const r = generateRecipe(bean, "Other", "cold");
       expect(r.brewRatio).toBe("1:10");
       expect(r.totalVolumeMl).toBe(160); // 16 g × 10
     }
@@ -364,14 +364,14 @@ describe("generateRecipe — cold mode", () => {
 
   it("cold recipe pour volumes sum to 160 ml (machine water only)", () => {
     for (const bean of [LIGHT_BEAN, MEDIUM_BEAN, DARK_BEAN]) {
-      const r = generateRecipe(bean, "Omni", "cold");
+      const r = generateRecipe(bean, "Other", "cold");
       expect(sumPours(r)).toBe(160);
       expect(sumPours(r)).toBe(r.totalVolumeMl);
     }
   });
 
   it("cold recipe has at most 120 g ice and a 270–300 ml total beverage", () => {
-    const r = generateRecipe(LIGHT_BEAN, "Omni", "cold");
+    const r = generateRecipe(LIGHT_BEAN, "Other", "cold");
     expect(r.icedServing).toBeDefined();
     expect(r.icedServing?.iceG).toBe(COLD_ICE_G);
     expect(r.icedServing?.iceG).toBeLessThanOrEqual(120);
@@ -381,49 +381,49 @@ describe("generateRecipe — cold mode", () => {
 
   it("cold recipe name clearly includes 'Iced'", () => {
     for (const bean of [LIGHT_BEAN, MEDIUM_BEAN, DARK_BEAN]) {
-      const r = generateRecipe(bean, "Omni", "cold");
+      const r = generateRecipe(bean, "Other", "cold");
       expect(r.name.toLowerCase()).toContain("iced");
     }
   });
 
   it("cold recipe name includes origin when present", () => {
-    const r = generateRecipe(LIGHT_BEAN, "Omni", "cold"); // LIGHT_BEAN.origin = "Ethiopia"
+    const r = generateRecipe(LIGHT_BEAN, "Other", "cold"); // LIGHT_BEAN.origin = "Ethiopia"
     expect(r.name).toContain("Ethiopia");
     expect(r.name).toContain("Iced");
   });
 
   it("cold recipe without origin produces 'Iced <Roast> Roast'", () => {
     const noOrigin: BeanMetadata = { ...LIGHT_BEAN, origin: "" };
-    const r = generateRecipe(noOrigin, "Omni", "cold");
+    const r = generateRecipe(noOrigin, "Other", "cold");
     expect(r.name).toBe("Iced Light Roast");
   });
 
   it("cold recipe icedServing instruction mentions xBloom has no cold setting", () => {
-    const r = generateRecipe(LIGHT_BEAN, "Omni", "cold");
+    const r = generateRecipe(LIGHT_BEAN, "Other", "cold");
     expect(r.icedServing?.instruction.toLowerCase()).toContain("xbloom");
   });
 
   it("cold recipe passes validateRecipeInvariants", () => {
     for (const bean of [LIGHT_BEAN, MEDIUM_BEAN, DARK_BEAN]) {
-      expect(() => validateRecipeInvariants(generateRecipe(bean, "Omni", "cold"))).not.toThrow();
+      expect(() => validateRecipeInvariants(generateRecipe(bean, "Other", "cold"))).not.toThrow();
     }
   });
 
   it("validateRecipeInvariants throws when cold recipe is missing icedServing", () => {
-    const r = generateRecipe(LIGHT_BEAN, "Omni", "cold");
+    const r = generateRecipe(LIGHT_BEAN, "Other", "cold");
     const { icedServing: _removed, ...withoutIced } = r;
     expect(() => validateRecipeInvariants(withoutIced as typeof r)).toThrow(/icedServing/);
   });
 
   it("validateRecipeInvariants throws when cold recipe has wrong iceG", () => {
-    const r = generateRecipe(LIGHT_BEAN, "Omni", "cold");
+    const r = generateRecipe(LIGHT_BEAN, "Other", "cold");
     const base = r.icedServing ?? { iceG: COLD_ICE_G, totalBeverageMl: 280, instruction: "" };
     const bad = { ...r, icedServing: { ...base, iceG: 200, totalBeverageMl: 360 } };
     expect(() => validateRecipeInvariants(bad)).toThrow(/iceG/);
   });
 
   it("validateRecipeInvariants throws when cold recipe has wrong totalBeverageMl", () => {
-    const r = generateRecipe(LIGHT_BEAN, "Omni", "cold");
+    const r = generateRecipe(LIGHT_BEAN, "Other", "cold");
     const base = r.icedServing ?? { iceG: COLD_ICE_G, totalBeverageMl: 280, instruction: "" };
     const bad = { ...r, icedServing: { ...base, totalBeverageMl: 999 } };
     expect(() => validateRecipeInvariants(bad)).toThrow(/totalBeverageMl/);
@@ -432,30 +432,30 @@ describe("generateRecipe — cold mode", () => {
 
 describe("generateRecipe — hot mode", () => {
   it("hot recipe has brewMode=hot", () => {
-    expect(generateRecipe(LIGHT_BEAN, "Omni", "hot").brewMode).toBe("hot");
+    expect(generateRecipe(LIGHT_BEAN, "Other", "hot").brewMode).toBe("hot");
   });
 
   it("hot default preserves roast-derived ratios", () => {
     // Existing ordering test from the hot default perspective
-    const light = generateRecipe(LIGHT_BEAN, "Omni", "hot");
-    const dark = generateRecipe(DARK_BEAN, "Omni", "hot");
+    const light = generateRecipe(LIGHT_BEAN, "Other", "hot");
+    const dark = generateRecipe(DARK_BEAN, "Other", "hot");
     const nLight = Number.parseInt(light.brewRatio.split(":")[1] ?? "0", 10);
     const nDark = Number.parseInt(dark.brewRatio.split(":")[1] ?? "0", 10);
     expect(nLight).toBeGreaterThan(nDark);
   });
 
   it("hot recipe has no icedServing", () => {
-    expect(generateRecipe(LIGHT_BEAN, "Omni", "hot").icedServing).toBeUndefined();
+    expect(generateRecipe(LIGHT_BEAN, "Other", "hot").icedServing).toBeUndefined();
   });
 
   it("hot recipe passes validateRecipeInvariants", () => {
     for (const bean of [LIGHT_BEAN, MEDIUM_BEAN, DARK_BEAN]) {
-      expect(() => validateRecipeInvariants(generateRecipe(bean, "Omni", "hot"))).not.toThrow();
+      expect(() => validateRecipeInvariants(generateRecipe(bean, "Other", "hot"))).not.toThrow();
     }
   });
 
   it("validateRecipeInvariants throws when hot recipe has icedServing", () => {
-    const r = generateRecipe(LIGHT_BEAN, "Omni", "hot");
+    const r = generateRecipe(LIGHT_BEAN, "Other", "hot");
     const bad = {
       ...r,
       icedServing: { iceG: 80, totalBeverageMl: 240, instruction: "oops" },

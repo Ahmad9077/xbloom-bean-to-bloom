@@ -284,6 +284,18 @@ describe("validateRequest", () => {
     expect(() => validateRequest({ recipe: bad, confirmSave: true })).not.toThrow();
   });
 
+  it("accepts Other dripper recipes up to 25g dose", () => {
+    const strong = {
+      ...validRecipe,
+      dripper: "Other" as const,
+      doseG: 25,
+      brewRatio: "1:10",
+      totalVolumeMl: 250,
+      pours: [{ ...bloomPour, volumeMl: 250 }],
+    };
+    expect(() => validateRequest({ recipe: strong, confirmSave: true })).not.toThrow();
+  });
+
   it("accepts a valid cold recipe with a different machine ratio", () => {
     const bad = {
       ...coldRecipe,

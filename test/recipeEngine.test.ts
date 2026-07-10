@@ -101,7 +101,7 @@ describe("buildRecipe", () => {
     expect(recipe.profile).toBe("neutral_classic");
     expect(recipe.rulesVersion).toBe(recipeTable.rulesVersion);
     expect(recipe.machine).toBe("xBloom Studio");
-    expect(recipe.dripper).toBe("Omni");
+    expect(recipe.dripper).toBe("Other");
     expect(recipe.totalVolumeMl).toBe(176);
     expect(recipe.icedServing).toMatchObject({ iceG: 124, totalBeverageMl: 300 });
     expect(
@@ -211,7 +211,7 @@ describe("buildRecipe", () => {
             recipe.doseG * Number.parseInt(recipe.brewRatio.slice(2), 10),
           );
           expect(recipe.doseG).toBeGreaterThanOrEqual(5);
-          expect(recipe.doseG).toBeLessThanOrEqual(18);
+          expect(recipe.doseG).toBeLessThanOrEqual(25);
           expect(recipe.grindSize).toBeGreaterThanOrEqual(1);
           expect(recipe.grindSize).toBeLessThanOrEqual(80);
           expect(recipe.rpm).toBeGreaterThanOrEqual(60);

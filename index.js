@@ -2832,7 +2832,7 @@ init_db();
 // src/recipe.ts
 var RECIPE_NAME_MAX_LEN = 200;
 var DOSE_MIN = 5;
-var DOSE_MAX = 18;
+var DOSE_MAX = 25;
 var RATIO_MIN = 5;
 var RATIO_MAX = 25;
 var GRIND_MIN = 1;
@@ -3070,7 +3070,7 @@ var TIMEOUT_MS3 = 9e4;
 var MAX_ATTEMPTS = 2;
 var STRING = { type: "string" };
 var TOTAL_VOLUME_SCHEMA = { type: "integer", minimum: 25, maximum: 450 };
-var DOSE_SCHEMA = { type: "integer", minimum: 5, maximum: 18 };
+var DOSE_SCHEMA = { type: "integer", minimum: 5, maximum: 25 };
 var BASE_ICED_SERVING_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -3518,7 +3518,7 @@ ${coldBrightGuidance}
 }
 __name(buildDefaultBalanceInstruction, "buildDefaultBalanceInstruction");
 function buildPrompt(bean, brewMode, targets, attempt = 1, options = {}) {
-  const doseInstruction = targets.fixedDoseG === null ? "- Choose doseG freely from 5..18g for best taste, while making totalVolumeMl exactly doseG \xD7 integer ratio denominator." : `- doseG must be exactly ${targets.fixedDoseG}g.`;
+  const doseInstruction = targets.fixedDoseG === null ? "- Choose doseG freely from 5..25g for best taste, while making totalVolumeMl exactly doseG \xD7 integer ratio denominator." : `- doseG must be exactly ${targets.fixedDoseG}g.`;
   const servingInstruction = brewMode === "cold" ? `- cold mode final drink target: exactly ${targets.finalDrinkMl} ml total beverage.
 - machine water totalVolumeMl must be exactly ${targets.waterMl} ml.
 - icedServing.iceG must be exactly ${targets.iceG} g; ice is measured outside the xBloom app and placed in the serving glass/carafe before brewing.
@@ -3536,8 +3536,8 @@ ${JSON.stringify(bean)}
 
 Use origin, variety, processing method, roast and tasting notes to make the recipe meaningfully specific. Do not reuse a generic roast template. Light roasts usually benefit from hotter/finer extraction; darker roasts usually need cooler/coarser extraction, but apply professional judgment to all supplied details.
 
-Verified xBloom Studio Omni limits:
-- doseG integer 5..18; ratio 1:5..1:25 with an integer denominator; totalVolumeMl exactly doseG times ratio denominator.
+Verified xBloom Studio Other limits:
+- doseG integer 5..25; ratio 1:5..1:25 with an integer denominator; totalVolumeMl exactly doseG times ratio denominator.
 - grind 1..80; RPM 60..120 in steps of 10; 2..4 pours.
 - pour labels exactly Bloom, Pour 2, Pour 3, Pour 4 in order; volumes sum exactly to totalVolumeMl.
 - temperatures 40..95 C, normally 85..95 C for coffee; flow 3.0..3.5 ml/s in 0.1 steps; pause 2..59 seconds.

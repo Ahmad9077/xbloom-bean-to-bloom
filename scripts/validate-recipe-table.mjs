@@ -56,7 +56,7 @@ for (const p of PROFILES) {
       if (!c) { err(`${tag}: cell missing`); continue; }
       const { doseG, ratioN, waterMl, iceG, pours } = c;
 
-      if (!Number.isInteger(doseG) || doseG < 5 || doseG > 18) err(`${tag}: doseG ${doseG} invalid (int 5-18)`);
+      if (!Number.isInteger(doseG) || doseG < 5 || doseG > 25) err(`${tag}: doseG ${doseG} invalid (int 5-25)`);
       if (!Number.isInteger(ratioN) || ratioN < 5 || ratioN > 25) err(`${tag}: ratioN ${ratioN} invalid (int 5-25)`);
       if (doseG * ratioN !== waterMl) err(`${tag}: waterMl ${waterMl} != doseG*ratioN ${doseG * ratioN}`);
 

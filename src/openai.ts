@@ -17,7 +17,7 @@ const RECIPE_SCHEMA = {
   properties: {
     brewRatio: { type: "string", pattern: "^1:(?:[5-9]|1[0-9]|2[0-5])$" },
     totalVolumeMl: { type: "integer", minimum: 25, maximum: 450 },
-    doseG: { type: "integer", minimum: 5, maximum: 18 },
+    doseG: { type: "integer", minimum: 5, maximum: 25 },
     grindSize: { type: "integer", minimum: 1, maximum: 80 },
     rpm: { type: "integer", enum: [60, 70, 80, 90, 100, 110, 120] },
     pours: {
@@ -163,8 +163,8 @@ ${JSON.stringify(bean)}
 
 Use origin, variety, processing method, roast and tasting notes to make the recipe meaningfully specific. Do not reuse a generic roast template. Light roasts usually benefit from hotter/finer extraction; darker roasts usually need cooler/coarser extraction, but apply professional judgment to all supplied details.
 
-Verified xBloom Studio Omni limits:
-- doseG integer 5..18; ratio 1:5..1:25; totalVolumeMl exactly dose times ratio denominator.
+Verified xBloom Studio Other limits:
+- doseG integer 5..25; ratio 1:5..1:25; totalVolumeMl exactly dose times ratio denominator.
 - grind 1..80; RPM 60..120 in steps of 10; 2..4 pours.
 - pour labels exactly Bloom, Pour 2, Pour 3, Pour 4 in order; volumes sum exactly to totalVolumeMl.
 - temperatures 40..95 C, normally 85..95 C for coffee; flow 3.0..3.5 ml/s in 0.1 steps; pause 2..59 seconds.

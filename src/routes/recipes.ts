@@ -75,7 +75,7 @@ export async function handleFromImages(
 
   const recipeName = `${ctx.username} ${EN_DASH} ${safeBeanName}`;
   const recipe = {
-    ...generateRecipe(sanitizedBean, "Omni", brewMode),
+    ...generateRecipe(sanitizedBean, "Other", brewMode),
     name: recipeName,
   };
   validateRecipeInvariants(recipe);
