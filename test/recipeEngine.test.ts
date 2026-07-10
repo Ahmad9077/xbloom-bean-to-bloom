@@ -102,14 +102,14 @@ describe("buildRecipe", () => {
     expect(recipe.rulesVersion).toBe(recipeTable.rulesVersion);
     expect(recipe.machine).toBe("xBloom Studio");
     expect(recipe.dripper).toBe("Other");
-    expect(recipe.totalVolumeMl).toBe(176);
-    expect(recipe.icedServing).toMatchObject({ iceG: 124, totalBeverageMl: 300 });
+    expect(recipe.totalVolumeMl).toBe(171);
+    expect(recipe.icedServing).toMatchObject({ iceG: 129, totalBeverageMl: 300 });
     expect(
       recipe.pours.reduce((sum: number, pour: { volumeMl: number }) => sum + pour.volumeMl, 0),
-    ).toBe(176);
+    ).toBe(171);
     expect(recipe.pours[0]).toMatchObject({
       label: "Bloom",
-      volumeMl: 38,
+      volumeMl: 42,
       tempC: 93,
       flowRateMlPerSec: 3.5,
       pauseSec: 30,
@@ -243,7 +243,7 @@ describe("buildRecipe", () => {
   });
 
   it("widens hot extraction bands under the approved hybrid rules version", () => {
-    expect(recipeTable.rulesVersion).toBe("1.1.0");
+    expect(recipeTable.rulesVersion).toBe("1.2.0");
     expect(recipeTable.recipes.bright_clean?.hot.params).toMatchObject({
       grindBand: [30, 42],
       tempRange: [91, 95],
@@ -287,6 +287,30 @@ describe("buildRecipe", () => {
       { size: 255, doseG: 17, ratioN: 15, waterMl: 255 },
       { size: 270, doseG: 18, ratioN: 15, waterMl: 270 },
     ]);
+  });
+
+  it("keeps v1.2.0 cold cells full-bodied within app-verified ice and dose windows", () => {
+    for (const profile of ["bright_clean", "bright_funky", "neutral_classic", "dark_roasty"]) {
+      const sizes = recipeTable.recipes[profile]?.cold.sizes as Record<
+        string,
+        { doseG: number; ratioN: number; waterMl: number; iceG: number }
+      >;
+      for (const size of [240, 270, 300, 330, 360]) {
+        const cell = sizes[String(size)];
+        expect(cell).toBeDefined();
+        if (!cell) continue;
+        expect(cell.doseG).toBeGreaterThanOrEqual(14);
+        expect(cell.doseG).toBeLessThanOrEqual(25);
+        expect(cell.waterMl + cell.iceG).toBe(size);
+        expect(cell.iceG).toBeGreaterThanOrEqual(96);
+        expect(cell.iceG).toBeLessThanOrEqual(144);
+        const overallRatio = size / cell.doseG;
+        expect(overallRatio).toBeGreaterThanOrEqual(15);
+        expect(overallRatio).toBeLessThanOrEqual(17.5);
+      }
+    }
+    const bright300 = recipeTable.recipes.bright_clean?.cold.sizes["300"];
+    expect(bright300).toMatchObject({ doseG: 20, ratioN: 9, waterMl: 180, iceG: 120 });
   });
 
   it("exposes frontend profile options from the table", () => {

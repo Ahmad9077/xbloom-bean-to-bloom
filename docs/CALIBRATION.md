@@ -49,4 +49,10 @@ Per profile: brew the table recipe → apply at most 2 fixes via Codex → confi
 
 - `dark_roasty.hot` at 210/225 runs 1:15 (strongest exact pair available) — if those sizes taste heavy, the temp −2 fix is the right lever.
 - `neutral_classic.hot` 270 runs 18g@1:15 (strong side) — same lever if needed.
-- `bright_clean.cold` 330/360 are dose-capped at 18g — slightly lighter cups are expected at those sizes; don't chase them with aggressive fixes.
+
+## Watch items from v1.2.0 cold body fix (Other dripper, doses to 25g)
+
+- All cold cells were rebuilt for fuller body: bright profiles brew 1:9 (60% water, uniform 1:15 overall drink); neutral ~1:16 overall; dark ~1:17 overall. The old 18g dose cap is gone — the dripper is now "Other", app-verified up to 25g.
+- Doses above 18g (bright 300/330/360, neutral 330/360, dark 360) are new territory: if a cup tastes muddy/over-heavy, the first lever is temps −1, NOT a dose cut (dose/ratio remain structural and owner-approved).
+- 360ml cells at neutral (1:10) and dark (1:11) run slightly more machine water (~64%) to keep ice ≤144g — expect them marginally less ice-cold; serve in a chilled glass if needed.
+- If a cold cup is now too intense, the symptom fix table applies unchanged (it never touches dose/ratio).
