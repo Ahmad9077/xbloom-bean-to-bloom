@@ -248,6 +248,34 @@ describe("validateRequest", () => {
     expect(result.recipe.icedServing?.totalBeverageMl).toBe(300);
   });
 
+  it("accepts the v1.2 neutral 300 ml cold cell with 129 g ice", () => {
+    const recipe = {
+      ...coldRecipe,
+      dripper: "Other" as const,
+      doseG: 19,
+      brewRatio: "1:9",
+      totalVolumeMl: 171,
+      pours: [{ ...coldPour, volumeMl: 171 }],
+      icedServing: { iceG: 129, totalBeverageMl: 300, instruction: "Serve over 129 g ice." },
+    };
+
+    expect(() => validateRequest({ recipe, confirmSave: true })).not.toThrow();
+  });
+
+  it("accepts the v1.2 bright 360 ml cold cell", () => {
+    const recipe = {
+      ...coldRecipe,
+      dripper: "Other" as const,
+      doseG: 24,
+      brewRatio: "1:9",
+      totalVolumeMl: 216,
+      pours: [{ ...coldPour, volumeMl: 216 }],
+      icedServing: { iceG: 144, totalBeverageMl: 360, instruction: "Serve over 144 g ice." },
+    };
+
+    expect(() => validateRequest({ recipe, confirmSave: true })).not.toThrow();
+  });
+
   it("accepts brewMode=hot without icedServing", () => {
     const result = validateRequest({ ...validBody, recipe: { ...validRecipe, brewMode: "hot" } });
     expect(result.recipe.brewMode).toBe("hot");
@@ -326,7 +354,7 @@ describe("validateRequest", () => {
   it("rejects cold recipe with wrong iceG", () => {
     const bad = {
       ...coldRecipe,
-      icedServing: { ...coldRecipe.icedServing, iceG: 99, totalBeverageMl: 279 },
+      icedServing: { ...coldRecipe.icedServing, iceG: 95, totalBeverageMl: 275 },
     };
     expect(() => validateRequest({ recipe: bad, confirmSave: true })).toThrowError(/iceG/);
   });
@@ -341,13 +369,13 @@ describe("validateRequest", () => {
     );
   });
 
-  it("rejects cold recipe outside the 270..300 ml final drink range", () => {
+  it("rejects cold recipe outside the 240..360 ml final drink range", () => {
     const bad = {
       ...coldRecipe,
-      brewRatio: "1:12",
-      totalVolumeMl: 216,
-      pours: [{ ...coldPour, volumeMl: 216 }],
-      icedServing: { ...coldRecipe.icedServing, iceG: 120, totalBeverageMl: 336 },
+      brewRatio: "1:13",
+      totalVolumeMl: 234,
+      pours: [{ ...coldPour, volumeMl: 234 }],
+      icedServing: { ...coldRecipe.icedServing, iceG: 144, totalBeverageMl: 378 },
     };
     expect(() => validateRequest({ recipe: bad, confirmSave: true })).toThrowError(
       /total beverage/,

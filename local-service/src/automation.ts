@@ -441,7 +441,7 @@ export async function createRecipe(
   await selectDripper(driver, recipe.dripper, jobId);
 
   if (recipe.dripper !== "xPod") {
-    await setSliderDose(driver, recipe.doseG, opts.maxRetries, jobId);
+    await setSliderDose(driver, recipe.doseG, opts.maxRetries, jobId, recipe.dripper);
   }
 
   const ratioN = Number.parseInt(recipe.brewRatio.split(":")[1] ?? "15", 10);

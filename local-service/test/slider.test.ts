@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { ErrorCode } from "../src/errors.js";
-import { setSlider } from "../src/slider.js";
+import { setSlider, setSliderDose } from "../src/slider.js";
 
 type Driver = {
   $: (sel: string) => Promise<MockElement>;
   action: (type: string, opts: object) => MockActionChain;
   pause: (ms: number) => Promise<void>;
 };
+
+type TestDriver = Driver & { moveSpy: ReturnType<typeof vi.fn> };
 
 type MockElement = {
   waitForExist: (opts: object) => Promise<void>;
@@ -23,11 +25,15 @@ type MockActionChain = {
   perform: () => Promise<void>;
 };
 
-function makeDriver(values: string[]): Driver {
+function makeDriver(values: string[]): TestDriver {
   let callCount = 0;
+  const moveSpy = vi.fn();
 
   const chain: MockActionChain = {
-    move: () => chain,
+    move: (opts) => {
+      moveSpy(opts);
+      return chain;
+    },
     down: () => chain,
     pause: () => chain,
     up: () => chain,
@@ -59,6 +65,7 @@ function makeDriver(values: string[]): Driver {
     }),
     action: vi.fn().mockReturnValue(chain),
     pause: vi.fn().mockResolvedValue(undefined),
+    moveSpy,
   };
 }
 
@@ -97,6 +104,28 @@ describe("setSlider", () => {
       "dose",
     );
     expect(driver.action).toHaveBeenCalledTimes(2);
+  });
+
+  it("bisects opposing slider values instead of oscillating around the target", async () => {
+    const driver = makeDriver(["21", "23", "22"]);
+    await setSlider(
+      driver as unknown as import("../src/driver.js").Driver,
+      "android=...Sb",
+      "android=...Tv",
+      22,
+      2,
+      59,
+      Number.parseInt,
+      5,
+      "job-1",
+      "pour1_pause",
+    );
+    const moves = driver.moveSpy.mock.calls.map((call) => call[0] as { x: number });
+    expect(moves).toHaveLength(3);
+    const firstX = moves[0]?.x ?? 0;
+    const secondX = moves[1]?.x ?? 0;
+    const thirdX = moves[2]?.x ?? 0;
+    expect(thirdX).toBe(Math.round((firstX + secondX) / 2));
   });
 
   it("throws SLIDER_SET_FAILED when max retries exhausted", async () => {
@@ -151,5 +180,33 @@ describe("setSlider", () => {
       "dose",
     );
     expect(driver.action).toHaveBeenCalled();
+  });
+
+  it("maps a 20 g Other-dripper dose against the 5-25 g slider range", async () => {
+    const driver = makeDriver(["20"]);
+
+    await setSliderDose(
+      driver as unknown as import("../src/driver.js").Driver,
+      20,
+      3,
+      "job-20g",
+      "Other",
+    );
+
+    expect(driver.moveSpy).toHaveBeenCalledWith({ x: 767, y: 763, origin: "viewport" });
+  });
+
+  it("keeps legacy Omni doses on the 5-18 g slider range", async () => {
+    const driver = makeDriver(["18"]);
+
+    await setSliderDose(
+      driver as unknown as import("../src/driver.js").Driver,
+      18,
+      3,
+      "job-18g-omni",
+      "Omni",
+    );
+
+    expect(driver.moveSpy).toHaveBeenCalledWith({ x: 993, y: 763, origin: "viewport" });
   });
 });

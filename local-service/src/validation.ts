@@ -171,10 +171,10 @@ export function validateRequest(body: unknown): ValidatedRequest {
         422,
       );
     }
-    if (recipe.icedServing.iceG < 100 || recipe.icedServing.iceG > 120) {
+    if (recipe.icedServing.iceG < 96 || recipe.icedServing.iceG > 144) {
       throw new ServiceError(
         ErrorCode.VALIDATION_ERROR,
-        `Cold recipe icedServing.iceG must be 100..120; got ${recipe.icedServing.iceG}`,
+        `Cold recipe icedServing.iceG must be 96..144; got ${recipe.icedServing.iceG}`,
         422,
       );
     }
@@ -186,10 +186,10 @@ export function validateRequest(body: unknown): ValidatedRequest {
         422,
       );
     }
-    if (expectedTotal < 270 || expectedTotal > 300) {
+    if (expectedTotal < 240 || expectedTotal > 360) {
       throw new ServiceError(
         ErrorCode.VALIDATION_ERROR,
-        `Cold recipe total beverage must be 270..300 ml; got ${expectedTotal}`,
+        `Cold recipe total beverage must be 240..360 ml; got ${expectedTotal}`,
         422,
       );
     }
