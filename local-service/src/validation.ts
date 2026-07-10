@@ -136,6 +136,11 @@ export function validateRequest(body: unknown): ValidatedRequest {
     );
   }
 
+  // Omni dripper slider only goes to 18 g in the xBloom app
+  if (recipe.dripper === "Omni" && recipe.doseG > 18) {
+    throw new ServiceError(ErrorCode.VALIDATION_ERROR, "Omni dripper dose must be 5..18 g", 422);
+  }
+
   // Ratio consistency
   const match = brewRatioPattern.exec(recipe.brewRatio);
   const ratioN = match ? Number.parseInt(match[1] ?? "0", 10) : 0;

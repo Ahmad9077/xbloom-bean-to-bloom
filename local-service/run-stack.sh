@@ -18,6 +18,18 @@ RUNTIME_DIR="${XBLOOM_RUNTIME_DIR:-$HOME/.codex/xbloom-bridge}"
 mkdir -p "$RUNTIME_DIR"
 chmod 700 "$RUNTIME_DIR"
 
+rotate_log() {
+  local file="$1"
+  local max_bytes=$((10 * 1024 * 1024))
+  if [[ -f "$file" ]] && [[ "$(stat -f %z "$file" 2>/dev/null || echo 0)" -gt "$max_bytes" ]]; then
+    rm -f "${file}.1"
+    mv "$file" "${file}.1"
+  fi
+}
+
+rotate_log "$RUNTIME_DIR/appium.log"
+rotate_log "$RUNTIME_DIR/emulator.log"
+
 ensure_appium_uiautomator2_driver() {
   if ! command -v appium >/dev/null 2>&1; then
     echo "Appium CLI is not installed or not in PATH" >&2
@@ -53,15 +65,28 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-if ! adb get-state >/dev/null 2>&1; then
-  emulator -avd "$AVD_NAME" -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect \
+start_emulator() {
+  emulator -avd "$AVD_NAME" -no-window -no-audio -no-boot-anim -no-snapshot-save \
+    -gpu swiftshader_indirect \
     >>"$RUNTIME_DIR/emulator.log" 2>&1 &
   emulator_pid="$!"
+}
+
+if ! adb get-state >/dev/null 2>&1; then
+  start_emulator
 fi
 
 for _ in {1..90}; do
   if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
     break
+  fi
+  # A fast launchd restart can briefly observe the previous supervisor's
+  # emulator before that supervisor finishes shutting it down. If it vanishes
+  # during this boot window, take ownership of a replacement instead of waiting
+  # until timeout with no emulator process.
+  if ! adb get-state >/dev/null 2>&1 && \
+     { [[ -z "$emulator_pid" ]] || ! kill -0 "$emulator_pid" 2>/dev/null; }; then
+    start_emulator
   fi
   sleep 2
 done

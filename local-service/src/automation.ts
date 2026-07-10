@@ -15,10 +15,15 @@ import type { Bypass, Pour, Recipe } from "./types.js";
 
 const PKG = "com.xbloom.tbdx";
 const APP_PAUSE_MIN_SEC = 2;
+const APP_RECIPE_NAME_MAX_CHARS = 30;
 
 // Global selector (recipe-level controls that appear exactly once)
 const sel = (resourceId: string) =>
   `android=new UiSelector().resourceId("${PKG}:id/${resourceId}")`;
+
+function uiSelectorString(value: string): string {
+  return JSON.stringify(value);
+}
 
 // Wraps a string as an XPath literal, handling both quote characters via concat().
 function xpathLiteral(value: string): string {
@@ -95,7 +100,7 @@ async function expandPourByLabel(driver: Driver, label: string, jobId: string): 
   // Tap the visible label coordinates. Its large parent row overlaps the fixed Save control
   // near the bottom of this screen, so clicking the parent's centre is intercepted.
   const labelElement = await driver.$(
-    `android=new UiSelector().resourceId("${PKG}:id/nameTv").text("${label}")`,
+    `android=new UiSelector().resourceId("${PKG}:id/nameTv").text(${uiSelectorString(label)})`,
   );
   await labelElement.waitForExist({ timeout: 8000 });
   await labelElement.click();
@@ -195,6 +200,12 @@ async function setPourValues(
  * Preserve delivery of older saved recipes that allowed 0 or 1 second. */
 export function normalizePauseSecForApp(pauseSec: number): number {
   return Math.max(APP_PAUSE_MIN_SEC, pauseSec);
+}
+
+/** xBloom Studio 2.2.2 silently truncates saved recipe names to 30 Unicode
+ * characters. Use the same value for saving and subsequent search/recovery. */
+export function normalizeRecipeNameForApp(recipeName: string): string {
+  return Array.from(recipeName).slice(0, APP_RECIPE_NAME_MAX_CHARS).join("");
 }
 
 async function selectPattern(
@@ -320,7 +331,142 @@ async function verifyPourTotal(
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
 
-async function saveRecipe(driver: Driver, recipeName: string, jobId: string): Promise<string> {
+async function findCreatedRecipeRow(driver: Driver, recipeName: string, jobId: string) {
+  const searchButton = await driver.$(sel("btn_search"));
+  await searchButton.waitForDisplayed({ timeout: 8000 });
+  await searchButton.click();
+
+  const searchInput = await driver.$(sel("etSearch"));
+  await searchInput.waitForDisplayed({ timeout: 8000 });
+  await searchInput.clearValue();
+  await searchInput.setValue(recipeName);
+  await driver.hideKeyboard().catch(() => {});
+
+  const searchAction = await driver.$(sel("btnSearchAction"));
+  await searchAction.waitForDisplayed({ timeout: 5000 });
+  await searchAction.click();
+  await driver.pause(1000);
+
+  const recipeNameLiteral = xpathLiteral(recipeName);
+  const recipeRow = await driver.$(
+    `//*[@resource-id='${PKG}:id/tv_recipe_name' and @text=${recipeNameLiteral}]/ancestor::*[@clickable='true'][1]`,
+  );
+  try {
+    await recipeRow.waitForDisplayed({ timeout: 15000 });
+  } catch {
+    throw new ServiceError(
+      ErrorCode.SHARE_LINK_FAILED,
+      "The saved recipe could not be found in xBloom. Please try again.",
+      503,
+    );
+  }
+  await driver.hideKeyboard().catch(() => {});
+  log.info("Saved recipe found with xBloom search", { jobId, stage: "share_recipe_found" });
+  return recipeRow;
+}
+
+async function openCreatedRecipe(driver: Driver, recipeName: string, jobId: string): Promise<void> {
+  // Every share attempt starts from a clean, known screen. xBloom retains its
+  // full-screen Search activity between Appium sessions, where bottom-nav
+  // controls exist behind the overlay but cannot actually navigate.
+  await navigateToRecipes(driver, jobId);
+
+  const myTab = await driver.$(sel("cv_my"));
+  if (await myTab.isExisting()) {
+    await myTab.click();
+    await driver.pause(1500);
+  }
+
+  // The xBloom app currently defaults My Recipes to its "xBloom" catalogue.
+  // User-created recipes are only actionable from the "Created" tab.
+  const createdTab = await driver.$("~Created");
+  await createdTab.waitForExist({ timeout: 8000 });
+  await createdTab.click();
+  await driver.pause(1200);
+
+  // RecyclerView only exposes visible rows and retains its previous scroll position.
+  // Use xBloom's own search so lookup is independent of list position and list size.
+  const recipeRow = await findCreatedRecipeRow(driver, recipeName, jobId);
+  await recipeRow.click();
+
+  const shareButton = await driver.$(sel("shareIv"));
+  try {
+    await shareButton.waitForDisplayed({ timeout: 10000 });
+  } catch {
+    throw new ServiceError(
+      ErrorCode.SHARE_LINK_FAILED,
+      "The saved recipe could not be opened for sharing. Please try again.",
+      503,
+    );
+  }
+  log.info("Saved recipe opened from Created recipes", { jobId, stage: "share_recipe_open" });
+}
+
+async function createShareLinkFromOpenRecipe(driver: Driver, jobId: string): Promise<string> {
+  const shareButton = await driver.$(sel("shareIv"));
+  try {
+    await shareButton.waitForDisplayed({ timeout: 10000 });
+    await shareButton.click();
+    const shareGrid = await driver.$(sel("shareRcv"));
+    await shareGrid.waitForDisplayed({ timeout: 8000 });
+    await driver.setClipboard(Buffer.from("").toString("base64"), "plaintext").catch(() => {});
+    const linkItem = await driver.$(
+      `android=new UiSelector().resourceId("${PKG}:id/nameTv").text("Link")`,
+    );
+    await linkItem.waitForDisplayed({ timeout: 8000 });
+    await linkItem.click();
+    await driver.pause(1000);
+  } catch {
+    throw new ServiceError(
+      ErrorCode.SHARE_LINK_FAILED,
+      "xBloom could not open its link-sharing action. Please try again.",
+      503,
+    );
+  }
+
+  let encodedClipboard: string;
+  try {
+    encodedClipboard = await driver.getClipboard("plaintext");
+  } catch {
+    throw new ServiceError(
+      ErrorCode.SHARE_LINK_FAILED,
+      "xBloom created the share action but its link could not be read. Please try again.",
+      503,
+    );
+  }
+  const clipboard = Buffer.from(encodedClipboard, "base64").toString("utf8");
+  const match = /https:\/\/share-h5\.xbloom\.com\/\?id=[^\s]+/.exec(clipboard);
+  if (!match) {
+    throw new ServiceError(
+      ErrorCode.SHARE_LINK_FAILED,
+      "xBloom did not create a share link. Please try again.",
+      503,
+    );
+  }
+  const shareUrl = new URL(match[0]);
+  if (shareUrl.protocol !== "https:" || shareUrl.hostname !== "share-h5.xbloom.com") {
+    throw new ServiceError(
+      ErrorCode.SHARE_LINK_FAILED,
+      "xBloom returned an invalid share link",
+      500,
+    );
+  }
+  log.info("xBloom share link created", { jobId, stage: "share_link_done" });
+  return shareUrl.toString();
+}
+
+async function createShareLink(driver: Driver, recipeName: string, jobId: string): Promise<string> {
+  await openCreatedRecipe(driver, recipeName, jobId);
+  return createShareLinkFromOpenRecipe(driver, jobId);
+}
+
+async function saveRecipe(
+  driver: Driver,
+  recipeName: string,
+  jobId: string,
+  onBeforeSave?: () => Promise<void>,
+  onRecipeSaved?: () => Promise<void>,
+): Promise<string> {
   log.info("Clicking Save", { jobId, stage: "save_click" });
 
   const saveTv = await driver.$(sel("saveTv"));
@@ -344,62 +490,35 @@ async function saveRecipe(driver: Driver, recipeName: string, jobId: string): Pr
 
   const saveIv = await driver.$(sel("saveIv"));
   await saveIv.waitForDisplayed({ timeout: 5000 });
+  // Persist this checkpoint before the irreversible app action. If the outcome is
+  // ever uncertain, automatic retries will not risk creating a duplicate.
+  await onBeforeSave?.();
   await saveIv.click();
 
   // Cloud sync can leave the name screen visible for several seconds. Rapid reverse polling
   // overloaded UiAutomator2 in the live app, so allow the transition to settle first.
   await driver.pause(12000);
 
-  // Navigate to Recipes tab
+  // Confirm the recipe exists in the user's Created collection before marking
+  // the cloud checkpoint complete.
   const tab = await driver.$(`android=new UiSelector().resourceId("${PKG}:id/recipeFragment")`);
   await tab.waitForExist({ timeout: 15000 });
   await tab.click();
   await driver.pause(600);
-
-  // Open My Recipes sub-tab
   const myTab = await driver.$(sel("cv_my"));
-  await myTab.waitForExist({ timeout: 8000 });
-  await myTab.click();
-  await driver.pause(1500);
-
-  // The dedicated My Recipes screen uses tv_recipe_name (not the editor's nameTv).
-  const recipeItem = await driver.$(
-    `android=new UiSelector().resourceId("${PKG}:id/tv_recipe_name").text("${recipeName}")`,
-  );
-  await recipeItem.waitForExist({ timeout: 15000 });
+  if (await myTab.isExisting()) await myTab.click();
+  const createdTab = await driver.$("~Created");
+  await createdTab.waitForExist({ timeout: 8000 });
+  await createdTab.click();
+  await driver.pause(1200);
+  const recipeRow = await findCreatedRecipeRow(driver, recipeName, jobId);
   log.info("Recipe saved and confirmed in My Recipes", { jobId, stage: "save_done" });
-
-  // Open the official recipe detail and ask the xBloom app to generate its own
-  // share link. This is the only supported source of an importable xBloom URL.
-  await recipeItem.click();
-  const shareButton = await driver.$(sel("shareIv"));
-  await shareButton.waitForDisplayed({ timeout: 10000 });
-  await shareButton.click();
-  const shareGrid = await driver.$(sel("shareRcv"));
-  await shareGrid.waitForDisplayed({ timeout: 8000 });
-  await driver.setClipboard(Buffer.from("").toString("base64"), "plaintext").catch(() => {});
-  const linkItem = await driver.$(
-    `android=new UiSelector().resourceId("${PKG}:id/nameTv").text("Link")`,
-  );
-  await linkItem.waitForDisplayed({ timeout: 8000 });
-  await linkItem.click();
-  await driver.pause(1000);
-  const encodedClipboard = await driver.getClipboard("plaintext");
-  const clipboard = Buffer.from(encodedClipboard, "base64").toString("utf8");
-  const match = /https:\/\/share-h5\.xbloom\.com\/\?id=[^\s]+/.exec(clipboard);
-  if (!match) {
-    throw new ServiceError(ErrorCode.SLIDER_SET_FAILED, "xBloom did not create a share link", 500);
-  }
-  const shareUrl = new URL(match[0]);
-  if (shareUrl.protocol !== "https:" || shareUrl.hostname !== "share-h5.xbloom.com") {
-    throw new ServiceError(
-      ErrorCode.SLIDER_SET_FAILED,
-      "xBloom returned an invalid share link",
-      500,
-    );
-  }
-  log.info("xBloom share link created", { jobId, stage: "share_link_done" });
-  return shareUrl.toString();
+  await onRecipeSaved?.();
+  // We are already looking at the exact saved search result. Open that row
+  // directly instead of trying to navigate through controls behind Search.
+  await recipeRow.click();
+  log.info("Saved recipe opened from search result", { jobId, stage: "share_recipe_open" });
+  return createShareLinkFromOpenRecipe(driver, jobId);
 }
 
 // ─── Screenshot ───────────────────────────────────────────────────────────────
@@ -427,6 +546,9 @@ export interface AutomationOptions {
   confirmSave: boolean;
   maxRetries: number;
   screenshotDir: string;
+  resumeSavedRecipe: boolean;
+  onBeforeSave?: (() => Promise<void>) | undefined;
+  onRecipeSaved?: (() => Promise<void>) | undefined;
 }
 
 export async function createRecipe(
@@ -435,6 +557,11 @@ export async function createRecipe(
   opts: AutomationOptions,
   jobId: string,
 ): Promise<{ shareLink?: string }> {
+  const appRecipeName = normalizeRecipeNameForApp(recipe.name);
+  if (opts.resumeSavedRecipe) {
+    log.info("Resuming at xBloom share-link creation", { jobId, stage: "share_resume" });
+    return { shareLink: await createShareLink(driver, appRecipeName, jobId) };
+  }
   await navigateToRecipes(driver, jobId);
   await clickCreate(driver, jobId);
 
@@ -470,7 +597,15 @@ export async function createRecipe(
   }
 
   if (opts.confirmSave) {
-    return { shareLink: await saveRecipe(driver, recipe.name, jobId) };
+    return {
+      shareLink: await saveRecipe(
+        driver,
+        appRecipeName,
+        jobId,
+        opts.onBeforeSave,
+        opts.onRecipeSaved,
+      ),
+    };
   }
   return {};
 }

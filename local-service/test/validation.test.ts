@@ -312,6 +312,23 @@ describe("validateRequest", () => {
     expect(() => validateRequest({ recipe: bad, confirmSave: true })).not.toThrow();
   });
 
+  it("rejects Omni dripper with doseG above 18", () => {
+    const body = {
+      recipe: {
+        ...validRecipe,
+        dripper: "Omni" as const,
+        doseG: 20,
+        brewRatio: "1:11",
+        totalVolumeMl: 220,
+        pours: [{ ...bloomPour, volumeMl: 220 }],
+      },
+      confirmSave: true,
+    };
+    expect(() => validateRequest(body)).toThrowError(
+      expect.objectContaining({ code: ErrorCode.VALIDATION_ERROR }),
+    );
+  });
+
   it("accepts Other dripper recipes up to 25g dose", () => {
     const strong = {
       ...validRecipe,

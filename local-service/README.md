@@ -10,7 +10,8 @@ loopback HTTP route remains available for local diagnostics only.
 
 ## Supported app version
 
-xBloom Studio **2.2.2** (`EXPECTED_APP_VERSION=2.2.2`). Other versions may work with
+xBloom Studio **2.2.2** (`EXPECTED_APP_VERSION=2.2.2`,
+`EXPECTED_APP_VERSION_CODE=2002033`). Other versions may work with
 `SKIP_VERSION_CHECK=true` during development, but are untested.
 
 ## Prerequisites

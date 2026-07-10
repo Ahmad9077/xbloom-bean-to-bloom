@@ -100,6 +100,7 @@ export interface Config {
   allowedOrigins: Set<string>;
   allowedHosts: Set<string>;
   expectedAppVersion: string;
+  expectedAppVersionCode: number;
   skipVersionCheck: boolean;
   elementTimeoutMs: number;
   sliderMaxRetries: number;

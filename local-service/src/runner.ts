@@ -6,7 +6,13 @@ export async function runRecipeAutomation(
   config: Config,
   recipe: Recipe,
   jobId: string,
-  options: { dryRun: boolean; confirmSave: boolean },
+  options: {
+    dryRun: boolean;
+    confirmSave: boolean;
+    resumeSavedRecipe?: boolean;
+    onBeforeSave?: () => Promise<void>;
+    onRecipeSaved?: () => Promise<void>;
+  },
 ): Promise<{ shareLink?: string }> {
   let driver: Awaited<ReturnType<typeof createDriver>> | undefined;
   try {
@@ -15,6 +21,7 @@ export async function runRecipeAutomation(
       elementTimeoutMs: config.elementTimeoutMs,
       skipVersionCheck: config.skipVersionCheck,
       expectedAppVersion: config.expectedAppVersion,
+      expectedAppVersionCode: config.expectedAppVersionCode,
       jobId,
     });
 
@@ -26,6 +33,9 @@ export async function runRecipeAutomation(
         confirmSave: options.confirmSave,
         maxRetries: config.sliderMaxRetries,
         screenshotDir: config.screenshotDir,
+        resumeSavedRecipe: options.resumeSavedRecipe ?? false,
+        onBeforeSave: options.onBeforeSave,
+        onRecipeSaved: options.onRecipeSaved,
       },
       jobId,
     );

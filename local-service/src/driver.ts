@@ -13,7 +13,6 @@ const APP_PACKAGE = "com.xbloom.tbdx";
 const APP_ACTIVITY = "com.chisalsoft.andite.uicontroller.activity.Activity_Splash";
 const WAIT_ACTIVITY = "com.xbloom.view.activity.MainActivity";
 const DEVICE_NAME = "emulator-5554";
-const EXPECTED_VERSION_CODE = 2002033;
 
 const execFileAsync = promisify(execFile);
 
@@ -22,6 +21,7 @@ export interface DriverOptions {
   elementTimeoutMs: number;
   skipVersionCheck: boolean;
   expectedAppVersion: string;
+  expectedAppVersionCode: number;
   jobId: string;
 }
 
@@ -38,7 +38,11 @@ function findAdb(): string | null {
   return null;
 }
 
-async function checkAppVersionViaAdb(jobId: string, expectedVersionName: string): Promise<void> {
+async function checkAppVersionViaAdb(
+  jobId: string,
+  expectedVersionName: string,
+  expectedVersionCode: number,
+): Promise<void> {
   const adbPath = findAdb();
   if (!adbPath) {
     throw new ServiceError(
@@ -90,10 +94,10 @@ async function checkAppVersionViaAdb(jobId: string, expectedVersionName: string)
 
   log.info("App version detected", { jobId, stage: "version_check", versionName, versionCode });
 
-  if (versionName !== expectedVersionName || versionCode !== EXPECTED_VERSION_CODE) {
+  if (versionName !== expectedVersionName || versionCode !== expectedVersionCode) {
     throw new ServiceError(
       ErrorCode.APP_VERSION_UNSUPPORTED,
-      `App version is not supported. Expected ${expectedVersionName} (${EXPECTED_VERSION_CODE}). Set SKIP_VERSION_CHECK=true to override.`,
+      `App version is not supported. Expected ${expectedVersionName} (${expectedVersionCode}). Set SKIP_VERSION_CHECK=true to override.`,
       409,
     );
   }
@@ -101,7 +105,7 @@ async function checkAppVersionViaAdb(jobId: string, expectedVersionName: string)
 
 export async function createDriver(opts: DriverOptions): Promise<Driver> {
   if (!opts.skipVersionCheck) {
-    await checkAppVersionViaAdb(opts.jobId, opts.expectedAppVersion);
+    await checkAppVersionViaAdb(opts.jobId, opts.expectedAppVersion, opts.expectedAppVersionCode);
   }
 
   const url = new URL(opts.appiumUrl);
@@ -148,10 +152,14 @@ export function id(resourceId: string): string {
   return `android=new UiSelector().resourceId("${APP_PACKAGE}:id/${resourceId}")`;
 }
 
+function uiSelectorString(value: string): string {
+  return JSON.stringify(value);
+}
+
 export function idText(resourceId: string, text: string): string {
-  return `android=new UiSelector().resourceId("${APP_PACKAGE}:id/${resourceId}").text("${text}")`;
+  return `android=new UiSelector().resourceId("${APP_PACKAGE}:id/${resourceId}").text(${uiSelectorString(text)})`;
 }
 
 export function contentDesc(desc: string): string {
-  return `android=new UiSelector().description("${desc}")`;
+  return `android=new UiSelector().description(${uiSelectorString(desc)})`;
 }

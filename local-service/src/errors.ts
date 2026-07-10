@@ -10,6 +10,7 @@ export const ErrorCode = {
   ELEMENT_NOT_FOUND: "ELEMENT_NOT_FOUND",
   SLIDER_SET_FAILED: "SLIDER_SET_FAILED",
   SAVE_FAILED: "SAVE_FAILED",
+  SHARE_LINK_FAILED: "SHARE_LINK_FAILED",
   IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
   QUEUE_FULL: "QUEUE_FULL",
   INTERNAL_ERROR: "INTERNAL_ERROR",
@@ -29,7 +30,35 @@ export class ServiceError extends Error {
 }
 
 export function toSafeMessage(err: unknown): string {
-  if (err instanceof ServiceError) return err.message;
+  if (err instanceof ServiceError) {
+    switch (err.code) {
+      case ErrorCode.SLIDER_SET_FAILED:
+        return "xBloom did not accept one of the recipe settings. Please retry once; if it repeats, create a new recipe with slightly different settings.";
+      case ErrorCode.NAVIGATION_ERROR:
+      case ErrorCode.APPIUM_SESSION_ERROR:
+        return "The Mac bridge could not control the xBloom app. Please confirm the emulator is open, logged in, and on a stable connection.";
+      case ErrorCode.SAVE_FAILED:
+        return "xBloom did not confirm that the recipe was saved. Please retry.";
+      case ErrorCode.SHARE_LINK_FAILED:
+        // These messages are fixed, user-facing strings produced by automation.ts.
+        return err.message;
+      case ErrorCode.APP_VERSION_UNSUPPORTED:
+      case ErrorCode.APP_VERSION_CHECK_FAILED:
+        return "The Mac bridge needs an xBloom app update or maintenance before it can continue.";
+      case ErrorCode.QUEUE_FULL:
+        return "The Mac bridge is busy with other recipes. Please wait and retry.";
+      case ErrorCode.VALIDATION_ERROR:
+      case ErrorCode.MACHINE_NOT_SUPPORTED:
+      case ErrorCode.MISSING_CONFIRM_SAVE:
+      case ErrorCode.DRY_RUN_CONFIRM_CONFLICT:
+      case ErrorCode.ELEMENT_NOT_FOUND:
+      case ErrorCode.IDEMPOTENCY_CONFLICT:
+      case ErrorCode.INTERNAL_ERROR:
+        return "The Mac bridge could not process this recipe. Please retry; if it repeats, create a new recipe.";
+      default:
+        return "The Mac bridge encountered an unexpected error. Please retry.";
+    }
+  }
   return "An internal error occurred";
 }
 

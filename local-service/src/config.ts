@@ -52,6 +52,7 @@ export function loadConfig(): Config {
         .filter(Boolean),
     ),
     expectedAppVersion: env("EXPECTED_APP_VERSION", "2.2.2"),
+    expectedAppVersionCode: envInt("EXPECTED_APP_VERSION_CODE", 2002033),
     skipVersionCheck: envBool("SKIP_VERSION_CHECK", false),
     elementTimeoutMs: envInt("ELEMENT_TIMEOUT_MS", 10000),
     sliderMaxRetries: envInt("SLIDER_MAX_RETRIES", 5),

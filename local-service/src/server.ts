@@ -132,10 +132,11 @@ app.post("/v1/recipes", async (req: Request, res: Response) => {
   log.info("Queuing job", { requestId, jobId, dryRun, confirmSave });
 
   const jobPromise = queue.run(async (): Promise<JobResult> => {
-    await runRecipeAutomation(config, recipe, jobId, {
-      dryRun: dryRun === true,
-      confirmSave: confirmSave === true,
-    });
+    const automationResult =
+      (await runRecipeAutomation(config, recipe, jobId, {
+        dryRun: dryRun === true,
+        confirmSave: confirmSave === true,
+      })) ?? {};
     return {
       ok: true,
       jobId,
@@ -143,6 +144,7 @@ app.post("/v1/recipes", async (req: Request, res: Response) => {
       dryRun: dryRun === true,
       confirmed: confirmSave === true,
       recipeName: recipe.name,
+      ...(automationResult.shareLink ? { shareLink: automationResult.shareLink } : {}),
       message: dryRun ? "Dry-run complete — recipe was not saved" : "Recipe saved successfully",
     };
   });

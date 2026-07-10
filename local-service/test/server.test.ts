@@ -25,6 +25,7 @@ vi.mock("../src/config.js", () => ({
     allowedOrigins: new Set(["http://localhost:3000"]),
     allowedHosts: new Set(["localhost:3999", "127.0.0.1:3999"]),
     expectedAppVersion: "2.2.2",
+    expectedAppVersionCode: 2002033,
     skipVersionCheck: true,
     elementTimeoutMs: 5000,
     sliderMaxRetries: 3,
@@ -212,6 +213,18 @@ describe("POST /v1/recipes — dry-run never saves", () => {
     expect(res.status).toBe(200);
     expect(res.body.confirmed).toBe(true);
     expect(res.body.dryRun).toBe(false);
+  });
+
+  it("confirmSave response includes the xBloom share link when automation returns it", async () => {
+    vi.mocked(createRecipe).mockResolvedValueOnce({
+      shareLink: "https://share-h5.xbloom.com/?id=local-test",
+    });
+    const res = await request(app)
+      .post("/v1/recipes")
+      .set("Host", "localhost:3999")
+      .send({ recipe: validRecipe, confirmSave: true });
+    expect(res.status).toBe(200);
+    expect(res.body.shareLink).toBe("https://share-h5.xbloom.com/?id=local-test");
   });
 });
 

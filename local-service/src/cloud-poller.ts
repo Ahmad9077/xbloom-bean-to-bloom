@@ -9,6 +9,8 @@ interface CloudJob {
   id: string;
   recipeId: string;
   recipe: Recipe;
+  saveStarted: boolean;
+  recipeSaved: boolean;
 }
 
 interface NextResponse {
@@ -17,6 +19,20 @@ interface NextResponse {
 }
 
 const REQUEST_TIMEOUT_MS = 15_000;
+const MAX_POLL_BACKOFF_MS = 60_000;
+
+export function computePollDelayMs(baseDelayMs: number, consecutiveFailures: number): number {
+  const base = Math.max(1000, baseDelayMs);
+  if (consecutiveFailures <= 0) return base;
+  return Math.min(base * 2 ** Math.min(consecutiveFailures - 1, 6), MAX_POLL_BACKOFF_MS);
+}
+
+export function requireShareLink(shareLink: string | undefined): string {
+  if (!shareLink) {
+    throw new Error("The recipe was saved, but xBloom did not return a share link");
+  }
+  return shareLink;
+}
 
 async function cloudFetch(config: Config, path: string, init?: RequestInit): Promise<Response> {
   if (!config.cloudWorkerUrl || !config.bridgeToken)
@@ -60,6 +76,19 @@ async function complete(
   if (!response.ok) throw new Error(`Cloud completion returned HTTP ${response.status}`);
 }
 
+async function checkpoint(
+  config: Config,
+  jobId: string,
+  value: "started" | "saved",
+): Promise<void> {
+  const response = await cloudFetch(
+    config,
+    `/api/bridge/jobs/${encodeURIComponent(jobId)}/checkpoint`,
+    { method: "POST", body: JSON.stringify({ checkpoint: value }) },
+  );
+  if (!response.ok) throw new Error(`Cloud checkpoint returned HTTP ${response.status}`);
+}
+
 export function startCloudPoller(config: Config): () => void {
   if (!config.cloudWorkerUrl || !config.bridgeToken) {
     log.info("Cloud bridge poller disabled", { stage: "cloud_poller_disabled" });
@@ -69,10 +98,12 @@ export function startCloudPoller(config: Config): () => void {
   let stopped = false;
   let timer: NodeJS.Timeout | undefined;
   let busy = false;
+  let consecutiveFailures = 0;
   const queue = new SerialQueue(1);
 
-  const schedule = () => {
-    if (!stopped) timer = setTimeout(poll, config.bridgePollIntervalMs ?? 5000);
+  const basePollIntervalMs = config.bridgePollIntervalMs ?? 5000;
+  const schedule = (delayMs = basePollIntervalMs) => {
+    if (!stopped) timer = setTimeout(poll, delayMs);
   };
 
   const poll = async () => {
@@ -82,6 +113,13 @@ export function startCloudPoller(config: Config): () => void {
       const response = await cloudFetch(config, "/api/bridge/jobs/next");
       if (!response.ok) throw new Error(`Cloud queue returned HTTP ${response.status}`);
       const payload = (await response.json()) as NextResponse;
+      if (consecutiveFailures > 0) {
+        log.info("Cloud bridge polling recovered", {
+          stage: "cloud_poll_recovered",
+          previousFailures: consecutiveFailures,
+        });
+      }
+      consecutiveFailures = 0;
       const job = payload.job;
       if (!payload.ok || !job) return;
 
@@ -97,9 +135,12 @@ export function startCloudPoller(config: Config): () => void {
           runRecipeAutomation(config, validated.recipe, job.id, {
             dryRun: false,
             confirmSave: true,
+            resumeSavedRecipe: job.saveStarted || job.recipeSaved,
+            onBeforeSave: () => checkpoint(config, job.id, "started"),
+            onRecipeSaved: () => checkpoint(config, job.id, "saved"),
           }),
         );
-        await complete(config, job.id, "completed", undefined, result.shareLink);
+        await complete(config, job.id, "completed", undefined, requireShareLink(result.shareLink));
         log.info("Cloud bridge job completed", { stage: "cloud_job_completed", jobId: job.id });
       } catch (error) {
         const message = toSafeMessage(error);
@@ -112,13 +153,20 @@ export function startCloudPoller(config: Config): () => void {
         });
       }
     } catch (error) {
-      log.warn("Cloud bridge poll failed", {
-        stage: "cloud_poll_error",
-        errorType: error instanceof Error ? error.name : "unknown",
-      });
+      consecutiveFailures += 1;
+      // Log the first failure and powers of two, avoiding unbounded 5-second
+      // log growth during a prolonged DNS/TLS/provider outage.
+      if (consecutiveFailures === 1 || (consecutiveFailures & (consecutiveFailures - 1)) === 0) {
+        log.warn("Cloud bridge poll failed", {
+          stage: "cloud_poll_error",
+          errorType: error instanceof Error ? error.name : "unknown",
+          consecutiveFailures,
+          retryInMs: computePollDelayMs(basePollIntervalMs, consecutiveFailures),
+        });
+      }
     } finally {
       busy = false;
-      schedule();
+      schedule(computePollDelayMs(basePollIntervalMs, consecutiveFailures));
     }
   };
 
