@@ -69,7 +69,7 @@ Logs contain only fixed-category error codes and request IDs. User data, recipe 
 Image bytes exist only in memory during the request scope; they are analyzed by the Cloudflare Workers AI binding and then discarded. OpenAI receives sanitized extracted text only, never image bytes. Nothing image-related is written to D1, logs, or application storage. No temp files are created (and therefore no local cleanup is needed).
 
 ### Cold serving rule
-Cold recipes target a 300 ml finished drink (accepted range 270–300 ml), using 100–120 g of ice placed in the serving glass or carafe and 150–200 ml of machine water. The Worker validates these limits before storing a recommendation.
+Cold recipes default to a 300 ml finished drink and support the 240–360 ml table menu. The calibrated cells use 96–144 g of ice in the serving glass or carafe; machine water is the exact `doseG × ratioN` value in the selected table cell. The Worker and Mac bridge validate these limits before the recipe is saved.
 
 ---
 
