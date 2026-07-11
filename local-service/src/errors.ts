@@ -71,3 +71,10 @@ export function toStatusCode(err: unknown): number {
   if (err instanceof ServiceError) return err.statusCode;
   return 500;
 }
+
+/** Bounded technical detail for the Mac-only logs. Never return this text to
+ * the Worker or website. */
+export function toLocalDiagnostic(err: unknown): string {
+  if (!(err instanceof Error)) return "Non-Error throw";
+  return err.message.replace(/[\r\n]+/g, " ").slice(0, 500);
+}

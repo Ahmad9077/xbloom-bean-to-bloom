@@ -13,6 +13,7 @@ function makeTotalsDriver(options: {
   ratioBase: string;
   ratioHalf: string;
   displayed?: boolean[];
+  headerAppearsAfterScrolls?: number;
 }) {
   let displayRead = 0;
   const action = vi.fn();
@@ -32,13 +33,16 @@ function makeTotalsDriver(options: {
   chain.up.mockReturnValue(chain);
   action.mockReturnValue(chain);
 
-  const element = (text: string, isCurrent = false) => ({
+  const element = (text: string, kind: "current" | "header" | "other" = "other") => ({
     getText: vi.fn().mockResolvedValue(text),
     isExisting: vi.fn().mockResolvedValue(text !== ""),
     isDisplayed: vi.fn().mockImplementation(async () => {
+      if (kind === "header" && options.headerAppearsAfterScrolls !== undefined) {
+        return action.mock.calls.length >= options.headerAppearsAfterScrolls;
+      }
       const values = options.displayed ?? [true];
       const value = values[displayRead] ?? values[values.length - 1] ?? true;
-      if (isCurrent) displayRead += 1;
+      if (kind === "current") displayRead += 1;
       return value;
     }),
     waitForDisplayed: vi.fn().mockResolvedValue(undefined),
@@ -49,16 +53,16 @@ function makeTotalsDriver(options: {
       if (selector.includes("following-sibling")) {
         return element(options.target);
       }
-      if (selector.includes("volumeCurrentTv")) return element(options.current, true);
+      if (selector.includes("volumeCurrentTv")) return element(options.current, "current");
       if (selector.includes("coffeeWaterdot5Tv")) return element(options.ratioHalf);
-      if (selector.includes("coffeeWaterTv")) return element(options.ratioBase);
-      if (selector.includes("volumeTv")) return element(options.machine);
+      if (selector.includes("coffeeWaterTv")) return element(options.ratioBase, "header");
+      if (selector.includes("volumeTv")) return element(options.machine, "header");
       return element("");
     }),
     action,
     pause: vi.fn().mockResolvedValue(undefined),
   };
-  return { driver, action };
+  return { driver, action, move: chain.move };
 }
 
 describe("normalizePauseSecForApp", () => {
@@ -157,7 +161,7 @@ describe("verifyRecipeTotals", () => {
   });
 
   it("stops scrolling as soon as totals are visible", async () => {
-    const { driver, action } = makeTotalsDriver({
+    const { driver, action, move } = makeTotalsDriver({
       current: "176",
       target: "/176ml",
       machine: "176ml",
@@ -174,5 +178,32 @@ describe("verifyRecipeTotals", () => {
     );
 
     expect(action).toHaveBeenCalledOnce();
+    expect(move).toHaveBeenCalledWith({ x: 20, y: 900, origin: "viewport" });
+    expect(move).toHaveBeenCalledWith({
+      x: 20,
+      y: 2100,
+      duration: 500,
+      origin: "viewport",
+    });
+  });
+
+  it("keeps scrolling until a collapsed recipe header is visible", async () => {
+    const { driver, action } = makeTotalsDriver({
+      current: "176",
+      target: "/176ml",
+      machine: "176ml",
+      ratioBase: "1:8",
+      ratioHalf: "",
+      headerAppearsAfterScrolls: 2,
+    });
+
+    await verifyRecipeTotals(
+      driver as unknown as import("../src/driver.js").Driver,
+      176,
+      8,
+      "job-collapsed-header",
+    );
+
+    expect(action).toHaveBeenCalledTimes(2);
   });
 });

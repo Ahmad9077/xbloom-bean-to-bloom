@@ -309,26 +309,46 @@ export async function verifyRecipeTotals(
   jobId: string,
 ): Promise<void> {
   const currentVolumeEl = await driver.$(sel("volumeCurrentTv"));
+  const machineVolumeEl = await driver.$(sel("volumeTv"));
+  const ratioBaseEl = await driver.$(sel("coffeeWaterTv"));
 
-  // Return the nested editor to its top, but stop as soon as the totals are
-  // visible. A second blind gesture at the top lands on the ratio SeekBar.
+  // Return the nested editor to its top, but stop as soon as both the totals
+  // and recipe header are visible. A second blind gesture at the top lands on
+  // the ratio SeekBar.
   for (let i = 0; i < 3; i++) {
-    if (await currentVolumeEl.isDisplayed().catch(() => false)) break;
+    const [currentVisible, machineVisible, ratioVisible] = await Promise.all([
+      currentVolumeEl.isDisplayed().catch(() => false),
+      machineVolumeEl.isDisplayed().catch(() => false),
+      ratioBaseEl.isDisplayed().catch(() => false),
+    ]);
+    if (currentVisible && machineVisible && ratioVisible) break;
     await driver
       .action("pointer", { id: "total-scroll", parameters: { pointerType: "touch" } })
-      .move({ x: 540, y: 900, origin: "viewport" })
+      // Stay in the left margin so the gesture cannot alter any SeekBar.
+      .move({ x: 20, y: 900, origin: "viewport" })
       .down({ button: 0 })
-      .move({ x: 540, y: 2100, duration: 500, origin: "viewport" })
+      .move({ x: 20, y: 2100, duration: 500, origin: "viewport" })
       .up({ button: 0 })
       .perform();
     await driver.pause(250);
   }
 
-  await currentVolumeEl.waitForDisplayed({ timeout: 5000 });
+  try {
+    await Promise.all([
+      currentVolumeEl.waitForDisplayed({ timeout: 5000 }),
+      machineVolumeEl.waitForDisplayed({ timeout: 5000 }),
+      ratioBaseEl.waitForDisplayed({ timeout: 5000 }),
+    ]);
+  } catch {
+    throw new ServiceError(
+      ErrorCode.SLIDER_SET_FAILED,
+      "Final recipe header and totals could not be displayed for verification",
+      500,
+    );
+  }
   const targetVolumeEl = await driver.$(
     `//*[@resource-id='${PKG}:id/volumeCurrentTv']/following-sibling::*[@resource-id='${PKG}:id/volumeSumTv'][1]`,
   );
-  const machineVolumeEl = await driver.$(sel("volumeTv"));
   const [currentVolume, targetVolume, machineVolume, actualRatio] = await Promise.all([
     currentVolumeEl.getText().then(parseMl),
     targetVolumeEl.getText().then(parseMl),

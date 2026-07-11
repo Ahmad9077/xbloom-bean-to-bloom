@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ErrorCode, ServiceError, toSafeMessage } from "../src/errors.js";
+import { ErrorCode, ServiceError, toLocalDiagnostic, toSafeMessage } from "../src/errors.js";
 
 describe("toSafeMessage", () => {
   it("does not expose low-level slider diagnostics to website users", () => {
@@ -78,5 +78,13 @@ describe("toSafeMessage", () => {
   it("returns a generic fallback for non-ServiceError throws", () => {
     const message = toSafeMessage(new Error("something internal"));
     expect(message).toBe("An internal error occurred");
+  });
+});
+
+describe("toLocalDiagnostic", () => {
+  it("keeps bounded technical detail in local logs without multiline injection", () => {
+    const diagnostic = toLocalDiagnostic(new Error(`selector failed\n${"x".repeat(600)}`));
+    expect(diagnostic).not.toContain("\n");
+    expect(diagnostic).toHaveLength(500);
   });
 });

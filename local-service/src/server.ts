@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { startCloudPoller } from "./cloud-poller.js";
 import { loadConfig } from "./config.js";
-import { ErrorCode, ServiceError, toErrorCode, toSafeMessage, toStatusCode } from "./errors.js";
+import {
+  ErrorCode,
+  ServiceError,
+  toErrorCode,
+  toLocalDiagnostic,
+  toSafeMessage,
+  toStatusCode,
+} from "./errors.js";
 import { IdempotencyStore } from "./idempotency.js";
 import { log } from "./logger.js";
 import { SerialQueue } from "./queue.js";
@@ -161,7 +168,14 @@ app.post("/v1/recipes", async (req: Request, res: Response) => {
     const code = toErrorCode(err);
     const message = toSafeMessage(err);
     const status = toStatusCode(err);
-    log.error("Job failed", { requestId, jobId, code, stage: "job_error" });
+    log.error("Job failed", {
+      requestId,
+      jobId,
+      code,
+      stage: "job_error",
+      errorType: err instanceof Error ? err.name : "unknown",
+      diagnostic: toLocalDiagnostic(err),
+    });
     res.status(status).json({ ok: false, requestId, error: { code, message } });
     return;
   }

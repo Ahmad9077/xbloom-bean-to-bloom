@@ -1,4 +1,4 @@
-import { toErrorCode, toSafeMessage } from "./errors.js";
+import { toErrorCode, toLocalDiagnostic, toSafeMessage } from "./errors.js";
 import { log } from "./logger.js";
 import { SerialQueue } from "./queue.js";
 import { runRecipeAutomation } from "./runner.js";
@@ -149,10 +149,7 @@ export function startCloudPoller(config: Config): () => void {
           jobId: job.id,
           errorCode: toErrorCode(error),
           errorType: error instanceof Error ? error.name : "unknown",
-          diagnostic:
-            error instanceof Error
-              ? error.message.replace(/[\r\n]+/g, " ").slice(0, 500)
-              : "Non-Error throw",
+          diagnostic: toLocalDiagnostic(error),
         });
         await complete(config, job.id, "failed", message).catch(() => {
           log.error("Could not report cloud bridge failure", {
