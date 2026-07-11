@@ -29,6 +29,9 @@ export default function RecipeResult({ recipe, recipeId }: Props) {
             >
               {isIced ? "Iced Pour-Over" : "Hot Pour-Over"}
             </span>
+            <span className="rounded-full bg-ivory/10 px-3 py-1 text-xs font-semibold text-ivory/80">
+              {recipe.strength === "strong" ? "Strong" : "Soft"}
+            </span>
             <span className="text-xs text-ivory/50">{recipe.machine}</span>
           </div>
           <h1 className="font-heading text-3xl md:text-4xl mb-1">{recipe.name}</h1>

@@ -1,4 +1,5 @@
 export type BrewMode = "cold" | "hot";
+export type BrewStrength = "strong" | "soft";
 
 export interface AuthUser {
   id: string;
@@ -38,6 +39,7 @@ export interface Recipe {
   machine: string;
   dripper: string;
   brewMode: BrewMode;
+  strength: BrewStrength;
   brewRatio: string;
   totalVolumeMl: number;
   doseG: number;

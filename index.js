@@ -8,6 +8,7 @@ import { classifyBean } from "./src/classifier.js";
 import {
   buildRecipe as buildTableRecipe,
   ENGINE_VERSION as RECIPE_ENGINE_VERSION,
+  getFinalDrinkMenu,
   getProfileOptions,
   getRecipeCell,
   getRecipePlan,
@@ -389,6 +390,7 @@ async function findCanonicalRecipeByIdentity(db, storeName, beanName, brewMode) 
 async function getBeanRecipeRevision(db, data) {
   const normalizedKey = data.normalizedKey;
   if (!normalizedKey) return 0;
+  const strength = requireInternalBrewStrength(data.strength);
   const row = await db.prepare(
     `SELECT revision FROM bean_recipe_revisions
        WHERE owner_id = ?
@@ -397,6 +399,7 @@ async function getBeanRecipeRevision(db, data) {
          AND profile = ?
          AND final_drink_ml = ?
          AND engine_version = ?
+         AND strength = ?
        LIMIT 1`
   ).bind(
     data.ownerId,
@@ -404,7 +407,8 @@ async function getBeanRecipeRevision(db, data) {
     data.brewMode,
     data.profile,
     data.finalDrinkMl,
-    data.engineVersion
+    data.engineVersion,
+    strength
   ).first();
   const revision = Number(row?.revision ?? 0);
   return Number.isInteger(revision) && revision >= 0 ? revision : 0;
@@ -414,12 +418,13 @@ async function rememberBeanRecipeRevision(db, data) {
   const normalizedKey = data.normalizedKey;
   if (!normalizedKey) return;
   const now = Date.now();
+  const strength = requireInternalBrewStrength(data.strength);
   await db.prepare(
     `INSERT INTO bean_recipe_revisions
        (owner_id, normalized_key, brew_mode, profile, final_drink_ml, engine_version,
-        revision, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(owner_id, normalized_key, brew_mode, profile, final_drink_ml, engine_version)
+        strength, revision, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(owner_id, normalized_key, brew_mode, profile, final_drink_ml, engine_version, strength)
      DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at`
   ).bind(
     data.ownerId,
@@ -428,6 +433,7 @@ async function rememberBeanRecipeRevision(db, data) {
     data.profile,
     data.finalDrinkMl,
     data.engineVersion,
+    strength,
     data.revision,
     now
   ).run();
@@ -438,14 +444,15 @@ async function createPendingRecipeConfirmation(db, data) {
   const expiresAt = now + RECIPE_CONFIRMATION_TTL_MS;
   await db.prepare(
     `INSERT INTO pending_recipe_confirmations
-         (id, owner_id, bean_json, brew_mode, status, expires_at,
+         (id, owner_id, bean_json, brew_mode, strength, status, expires_at,
           suggested_profile, classifier_confidence, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`
   ).bind(
     data.id,
     data.ownerId,
     data.beanJson,
     data.brewMode,
+    data.strength ?? null,
     expiresAt,
     data.suggestedProfile ?? null,
     data.classifierConfidence ?? null,
@@ -2924,6 +2931,9 @@ function resolveRecipeTargets(brewMode, preferences = {}) {
 }
 __name(resolveRecipeTargets, "resolveRecipeTargets");
 function validateRecipeInvariants(recipe) {
+  if (recipe.strength !== "strong" && recipe.strength !== "soft") {
+    throw new InternalError("Recipe strength must be strong or soft");
+  }
   const { name, machine, dripper, doseG, totalVolumeMl, grindSize, rpm, pours, bypass, brewMode } = recipe;
   if (brewMode !== "cold" && brewMode !== "hot") {
     throw new InternalError(`brewMode must be "cold" or "hot"; got "${String(brewMode)}"`);
@@ -3045,9 +3055,6 @@ function validateRecipeInvariants(recipe) {
       throw new InternalError(
         `Cold recipe total beverage must be ${COLD_TOTAL_MIN_ML}..${COLD_TOTAL_MAX_ML} ml`
       );
-    }
-    if (Math.abs(recipe.icedServing.iceG - Math.round(expectedTotal * 0.4)) > 1) {
-      throw new InternalError("Cold recipe ice must be approximately 40% of final drink size");
     }
     const overallRatio = expectedTotal / doseG;
     if (overallRatio < 12 || overallRatio > 20) {
@@ -3614,6 +3621,7 @@ async function handleFromImages(request, env, requestId) {
     throw new ClientError("Could not parse multipart/form-data body");
   }
   const brewMode = parseBrewMode(formData);
+  const strength = parseBrewStrength(formData);
   const productUrl = parseProductUrl(formData);
   if (env.TURNSTILE_SECRET_KEY) {
     const token = formData.get("cf-turnstile-response");
@@ -3684,6 +3692,7 @@ async function handleFromImages(request, env, requestId) {
     ownerId: ctx.userId,
     beanJson: JSON.stringify(extractedBean),
     brewMode,
+    strength,
     suggestedProfile: classification.profile,
     classifierConfidence: classification.confidence
   });
@@ -3694,6 +3703,7 @@ async function handleFromImages(request, env, requestId) {
       needsConfirmation: true,
       confirmationId,
       brewMode,
+      strength,
       bean: publicBean,
       missingFields: missingConfirmationBeanFields(publicBean),
       suggestedProfile: classification.profile,
@@ -3728,6 +3738,9 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
   if (Object.prototype.hasOwnProperty.call(input, "profile")) {
     throw new ClientError("Brew profile is chosen automatically from confirmed bean details");
   }
+  if (Object.prototype.hasOwnProperty.call(input, "strength")) {
+    throw new ClientError("Brew strength is set when scanning the bag; it cannot be changed at confirmation.");
+  }
   const storeName = limitChars(
     sanitizeModelString(input.storeName, 100),
     CONFIRMED_STORE_NAME_MAX_CHARS
@@ -3758,7 +3771,13 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
       });
     }
   }
-  validateRecipePreferencesForMode(preferences, pending.brew_mode);
+  const pendingStrength = pending.strength;
+  if (pendingStrength !== "strong" && pendingStrength !== "soft") {
+    throw new ClientError(
+      "This recipe has no strength setting. Please start a new recipe and choose Strong or Soft."
+    );
+  }
+  validateRecipePreferencesForMode(preferences, pending.brew_mode, pendingStrength);
   const extracted = sanitizeBeanMetadata(JSON.parse(pending.bean_json));
   const confirmedBean = {
     ...extracted,
@@ -3811,7 +3830,7 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
     { forceUpdate: profileCacheRefresh !== null }
   );
   const targets = resolveRecipeTargets(pending.brew_mode, preferences);
-  const tableFinalDrinkMl = selectTableFinalDrinkMl(pending.brew_mode, targets.finalDrinkMl);
+  const tableFinalDrinkMl = selectTableFinalDrinkMl(pending.brew_mode, targets.finalDrinkMl, pendingStrength);
   const rulesVersion = RECIPE_RULES_VERSION;
   const normalizedBeanKey = beanProfileCacheKey(storeName, beanName);
   const revision = await getBeanRecipeRevision(env.DB, {
@@ -3820,7 +3839,8 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
     brewMode: pending.brew_mode,
     profile: chosenProfile,
     finalDrinkMl: tableFinalDrinkMl,
-    engineVersion: RECIPE_ENGINE_VERSION
+    engineVersion: RECIPE_ENGINE_VERSION,
+    strength: pendingStrength
   });
   const fingerprint = await recipeFingerprint({
     roastery: storeName,
@@ -3830,7 +3850,8 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
     profile: chosenProfile,
     rulesVersion,
     revision,
-    engineVersion: RECIPE_ENGINE_VERSION
+    engineVersion: RECIPE_ENGINE_VERSION,
+    strength: pendingStrength
   });
   const cached = await findRecipeByFingerprint(env.DB, ctx.userId, fingerprint);
   if (cached) {
@@ -3865,7 +3886,8 @@ async function handleFromConfirmation(request, env, requestId, executionCtx) {
         rulesVersion,
         fingerprint,
         revision,
-        engineVersion: RECIPE_ENGINE_VERSION
+        engineVersion: RECIPE_ENGINE_VERSION,
+        strength: pendingStrength
       },
       executionCtx
     );
@@ -4007,6 +4029,7 @@ async function logRecipeShadow({
   username,
   bean,
   brewMode,
+  strength,
   preferences,
   legacyRecipe,
   storeName,
@@ -4016,11 +4039,17 @@ async function logRecipeShadow({
   try {
     const targets = resolveRecipeTargets(brewMode, preferences);
     const classification = await classifyBean(bean, env);
-    const shadowFinalDrinkMl = selectTableFinalDrinkMl(brewMode, targets.finalDrinkMl);
+    const shadowStrength = requireInternalBrewStrength(strength);
+    const shadowFinalDrinkMl = selectTableFinalDrinkMl(
+      brewMode,
+      targets.finalDrinkMl,
+      shadowStrength
+    );
     const shadowRecipe = buildTableRecipe({
       profile: classification.profile,
       brewMode,
       finalDrinkMl: shadowFinalDrinkMl,
+      strength: shadowStrength,
       beanMeta: bean,
       username,
       roastery: storeName,
@@ -4030,7 +4059,8 @@ async function logRecipeShadow({
     const cell = getRecipeCell({
       profile: classification.profile,
       brewMode,
-      finalDrinkMl: shadowFinalDrinkMl
+      finalDrinkMl: shadowFinalDrinkMl,
+      strength: shadowStrength
     });
     console.log(JSON.stringify({
       event: "recipe_shadow",
@@ -4375,8 +4405,9 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
   let recipe;
   let effectiveEngineMeta = engineMeta;
   if (env.RECIPE_ENGINE === "table") {
+    const strength = requireInternalBrewStrength(effectiveEngineMeta?.strength);
     const targets = resolveRecipeTargets(brewMode, preferences);
-    const tableFinalDrinkMl = selectTableFinalDrinkMl(brewMode, targets.finalDrinkMl);
+    const tableFinalDrinkMl = selectTableFinalDrinkMl(brewMode, targets.finalDrinkMl, strength);
     let profile = effectiveEngineMeta?.profile;
     if (!isValidRecipeProfile(profile)) {
       const classification = await chooseRecipeProfile(enrichedBean, env);
@@ -4388,17 +4419,20 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
       fingerprint: effectiveEngineMeta?.fingerprint ?? null,
       revision: Number.isInteger(effectiveEngineMeta?.revision) ? effectiveEngineMeta.revision : 0,
       engineVersion: effectiveEngineMeta?.engineVersion ?? RECIPE_ENGINE_VERSION,
-      complaint: effectiveEngineMeta?.complaint ?? null
+      complaint: effectiveEngineMeta?.complaint ?? null,
+      strength
     };
     const plan = getRecipePlan({
       profile,
       brewMode,
-      finalDrinkMl: tableFinalDrinkMl
+      finalDrinkMl: tableFinalDrinkMl,
+      strength
     });
     const fallbackRecipe = buildTableRecipe({
       profile,
       brewMode,
       finalDrinkMl: tableFinalDrinkMl,
+      strength,
       beanMeta: enrichedBean,
       username,
       roastery: safeStoreName,
@@ -4422,6 +4456,7 @@ async function generateAndStoreRecipe(env, requestId, ownerId, username, sanitiz
         profile,
         brewMode,
         finalDrinkMl: tableFinalDrinkMl,
+        strength,
         beanMeta: enrichedBean,
         username,
         roastery: safeStoreName,
@@ -4683,6 +4718,12 @@ async function handleRetuneRecipe(request, env, requestId, recipeId, executionCt
   }
   const brewMode = priorRecipe?.brewMode === "hot" ? "hot" : "cold";
   const profile = isValidRecipeProfile(row.profile ?? priorRecipe?.profile) ? row.profile ?? priorRecipe.profile : DEFAULT_RECIPE_PROFILE;
+  const retuneStrength = priorRecipe?.strength;
+  if (retuneStrength !== "strong" && retuneStrength !== "soft") {
+    throw new ClientError(
+      "This recipe has no strength setting. Please create a new recipe and choose Strong or Soft."
+    );
+  }
   const storeName = sanitizeModelString(row.store_name ?? priorRecipe?.bean?.storeName ?? "", 100);
   const beanName = sanitizeModelString(row.bean_name ?? priorRecipe?.bean?.beanName ?? "", 100);
   if (!storeName || !beanName) {
@@ -4692,7 +4733,7 @@ async function handleRetuneRecipe(request, env, requestId, recipeId, executionCt
   if (!Number.isInteger(finalDrinkMl)) {
     throw new ClientError("This recipe is missing the drink size and cannot be re-tuned.");
   }
-  const tableFinalDrinkMl = selectTableFinalDrinkMl(brewMode, finalDrinkMl);
+  const tableFinalDrinkMl = selectTableFinalDrinkMl(brewMode, finalDrinkMl, retuneStrength);
   const normalizedBeanKey = beanProfileCacheKey(storeName, beanName);
   const currentRevision = Math.max(
     await getBeanRecipeRevision(env.DB, {
@@ -4701,7 +4742,8 @@ async function handleRetuneRecipe(request, env, requestId, recipeId, executionCt
       brewMode,
       profile,
       finalDrinkMl: tableFinalDrinkMl,
-      engineVersion: RECIPE_ENGINE_VERSION
+      engineVersion: RECIPE_ENGINE_VERSION,
+      strength: retuneStrength
     }),
     Number.isInteger(row.retune_revision) ? row.retune_revision : 0,
     Number.isInteger(priorRecipe?.retuneRevision) ? priorRecipe.retuneRevision : 0
@@ -4715,7 +4757,8 @@ async function handleRetuneRecipe(request, env, requestId, recipeId, executionCt
     profile,
     rulesVersion: RECIPE_RULES_VERSION,
     revision: nextRevision,
-    engineVersion: RECIPE_ENGINE_VERSION
+    engineVersion: RECIPE_ENGINE_VERSION,
+    strength: retuneStrength
   });
   const existingRetune = await findRecipeByFingerprint(env.DB, ctx.userId, fingerprint);
   if (existingRetune) {
@@ -4726,6 +4769,7 @@ async function handleRetuneRecipe(request, env, requestId, recipeId, executionCt
       profile,
       finalDrinkMl: tableFinalDrinkMl,
       engineVersion: RECIPE_ENGINE_VERSION,
+      strength: retuneStrength,
       revision: nextRevision
     });
     return recipeResponse(
@@ -4763,7 +4807,8 @@ async function handleRetuneRecipe(request, env, requestId, recipeId, executionCt
         fingerprint,
         revision: nextRevision,
         engineVersion: RECIPE_ENGINE_VERSION,
-        complaint
+        complaint,
+        strength: retuneStrength
       },
       executionCtx
     );
@@ -4779,6 +4824,7 @@ async function handleRetuneRecipe(request, env, requestId, recipeId, executionCt
         profile,
         finalDrinkMl: tableFinalDrinkMl,
         engineVersion: RECIPE_ENGINE_VERSION,
+        strength: retuneStrength,
         revision: nextRevision
       });
       return recipeResponse(
@@ -4802,6 +4848,7 @@ async function handleRetuneRecipe(request, env, requestId, recipeId, executionCt
     profile,
     finalDrinkMl: tableFinalDrinkMl,
     engineVersion: RECIPE_ENGINE_VERSION,
+    strength: retuneStrength,
     revision: nextRevision
   });
   return response;
@@ -4815,6 +4862,23 @@ function parseBrewMode(formData) {
   throw new ClientError(`Invalid brewMode "${raw}"; must be "cold" or "hot"`);
 }
 __name(parseBrewMode, "parseBrewMode");
+function parseBrewStrength(formData) {
+  const raw = formData.get("strength");
+  if (raw === null || raw === void 0 || raw === "") {
+    throw new ClientError('Brew strength is required. Choose "strong" or "soft".');
+  }
+  if (typeof raw !== "string") throw new ClientError('"strength" must be a text value');
+  if (raw === "strong" || raw === "soft") return raw;
+  throw new ClientError(`Invalid strength "${raw}"; must be "strong" or "soft"`);
+}
+__name(parseBrewStrength, "parseBrewStrength");
+function requireInternalBrewStrength(value) {
+  if (value !== "strong" && value !== "soft") {
+    throw new InternalError("Recipe strength is missing or invalid");
+  }
+  return value;
+}
+__name(requireInternalBrewStrength, "requireInternalBrewStrength");
 function parseRecipePreferences(input) {
   const hasFinalDrinkMl = input.finalDrinkMl !== void 0 && input.finalDrinkMl !== null;
   const preferences = {};
@@ -4827,9 +4891,9 @@ function parseRecipePreferences(input) {
   }
   return preferences;
 }
-function validateRecipePreferencesForMode(preferences, brewMode) {
+function validateRecipePreferencesForMode(preferences, brewMode, strength) {
   if (preferences.finalDrinkMl !== void 0) {
-    const choices = brewMode === "hot" ? HOT_DRINK_CHOICES : COLD_DRINK_CHOICES;
+    const choices = getFinalDrinkMenu(brewMode, strength);
     if (!choices.includes(preferences.finalDrinkMl)) {
       throw new ClientError("Drink ml must be one of the available choices");
     }
@@ -4905,7 +4969,7 @@ function secureApiResponse(response) {
   });
 }
 __name(secureApiResponse, "secureApiResponse");
-var TASTE_STYLE_FRONTEND_VERSION = "hybrid-adaptive-retune-20260703";
+var TASTE_STYLE_FRONTEND_VERSION = "strength-20260711";
 function patchRecipeStyleFrontendScript(script) {
   let patched = script;
   patched = patched.replace(
@@ -4919,7 +4983,7 @@ function patchRecipeStyleFrontendScript(script) {
   const componentStart = patched.indexOf('function fh(');
   const componentEnd = componentStart >= 0 ? patched.indexOf('const ph=', componentStart) : -1;
   if (componentStart >= 0 && componentEnd > componentStart) {
-    const replacement = 'function fh({confirmation:o,submitting:c,error:a,onConfirm:d,onCancel:p}){const[v,h]=N.useState(Xl(o.bean.storeName,ai)),[x,S]=N.useState(Xl(o.bean.beanName,ui)),E=o.brewMode==="hot"?uh:ch,C=o.brewMode==="hot"?255:300,[b,z]=N.useState(C),m=new Set(Array.isArray(o.missingFields)?o.missingFields:[]),F=o.bean||{},O=m.has("origin"),P=m.has("processingMethod"),D=m.has("description")||m.has("flavors")||m.has("flavors or description"),[L,U]=N.useState(F.origin||""),[V,W]=N.useState(F.processingMethod||""),[Y,K]=N.useState((Array.isArray(F.flavors)&&F.flavors.length?F.flavors.join(", "):F.description)||""),ro=[["unknown","Unknown"],["light","Light"],["medium_light","Medium-light"],["medium","Medium"],["medium_dark","Medium-dark"],["dark","Dark"]],[rl,setRl]=N.useState(ro.some(A=>A[0]===F.roastLevel)?F.roastLevel:"unknown"),J=Array.isArray(o.profileOptions)?o.profileOptions:[],ee=o.suggestedProfile||"neutral_classic";function oe(A){const Q=J.find(G=>G.id===A);return Q?`${Q.emoji||"☕"} ${Q.labelEn||Q.id}`:A}const Z=rl!=="unknown",B=v.trim().length>0&&x.trim().length>0&&(!O||L.trim().length>0)&&(!P||V.trim().length>0)&&(!D||Y.trim().length>0)&&Z;function R(){const A=b!==null?{finalDrinkMl:b}:{};O&&(A.origin=L.trim());P&&V.trim()&&(A.processingMethod=V.trim());D&&(A.description=Y.trim());A.roastLevel=rl;return A}return i.jsx("div",{className:"fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/45 px-4 py-6",role:"presentation",children:i.jsxs("dialog",{open:!0,"aria-labelledby":"bean-confirmation-title",className:"max-h-[92vh] w-full max-w-md overflow-y-auto rounded-card bg-ivory p-6 shadow-2xl",children:[i.jsx("h2",{id:"bean-confirmation-title",className:"font-heading text-3xl text-espresso",children:"Confirm Below Details"}),i.jsxs("div",{className:"mt-5 space-y-4",children:[i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Rostery/Café",i.jsx("input",{value:v,onChange:A=>h(Xl(A.target.value,ai)),maxLength:ai,disabled:c,className:`mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal\n                         text-espresso focus-visible:outline-2 focus-visible:outline-terracotta`,placeholder:"Max 40 characters"})]}),i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Bean name",i.jsx("input",{value:x,onChange:A=>S(Xl(A.target.value,ui)),maxLength:ui,disabled:c,className:`mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal\n                         text-espresso focus-visible:outline-2 focus-visible:outline-terracotta`,placeholder:"Max 60 characters"})]}),O&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Origin",i.jsx("input",{value:L,onChange:A=>U(A.target.value.slice(0,100)),maxLength:100,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: Yemen / Ethiopia"})]}),P&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Processing method",i.jsxs("select",{value:V,onChange:A=>W(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:[i.jsx("option",{value:"",children:"Select process"}),["washed","natural","honey","anaerobic","co-fermented","infused"].map(A=>i.jsx("option",{value:A,children:A},A))]})]}),D&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Tasting notes / description",i.jsx("textarea",{value:Y,onChange:A=>K(A.target.value.slice(0,200)),maxLength:200,rows:3,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: red fruits, chocolate, floral"})]}),i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Roast level",i.jsx("select",{value:rl,onChange:A=>setRl(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:ro.map(A=>i.jsx("option",{value:A[0],children:A[1]},A[0]))}),rl==="unknown"&&i.jsx("p",{className:"mt-2 text-xs text-red-700",children:"Select the roast level before creating the recipe."})]}),J.length>0&&i.jsxs("div",{className:"rounded-card border border-sage/30 bg-white p-3",children:[i.jsx("p",{className:"text-sm font-semibold text-espresso",children:"Brew profile"}),i.jsxs("p",{className:"mt-2 inline-flex rounded-full bg-sage/10 px-3 py-1 text-xs font-semibold text-sage",children:["Preliminary guess: ",oe(ee)]}),i.jsx("p",{className:"mt-2 text-xs text-sage",children:"Final profile is chosen after you confirm the bean details."})]}),i.jsxs("fieldset",{disabled:c,children:[i.jsx("legend",{className:"text-sm font-semibold text-espresso",children:"Total Drink ml"}),i.jsx("div",{className:"mt-2 grid grid-cols-5 gap-2",children:E.map(A=>{const Q=b===A;return i.jsx("button",{type:"button","aria-pressed":Q,onClick:()=>z(A),className:`min-h-touch rounded-2xl border px-2 py-2 text-sm font-semibold transition\n                      ${Q?"border-espresso bg-espresso text-ivory":"border-sage/40 bg-white text-espresso"}`,children:A},A)})})]}),a&&i.jsx("p",{role:"alert",className:"mt-4 text-sm text-red-700",children:a}),i.jsxs("div",{className:"mt-6 space-y-3",children:[i.jsx("button",{type:"button",disabled:!B||c,onClick:()=>d(v.trim(),x.trim(),R()),className:`w-full min-h-touch rounded-card bg-espresso px-4 py-3 font-semibold text-ivory\n                       disabled:cursor-not-allowed disabled:opacity-40`,children:c?"Creating recipe…":"Confirm and create recipe"}),i.jsx("button",{type:"button",disabled:c,onClick:p,className:`w-full min-h-touch rounded-card border border-sage/50 px-4 py-3 font-semibold\n                       text-espresso disabled:opacity-40`,children:"Cancel"})]})]})]})})}';
+    const replacement = 'function fh({confirmation:o,submitting:c,error:a,onConfirm:d,onCancel:p}){const[v,h]=N.useState(Xl(o.bean.storeName,ai)),[x,S]=N.useState(Xl(o.bean.beanName,ui)),hs=o.strength==="strong"?[210,224,238,252,266]:uh,E=o.brewMode==="hot"?hs:ch,C=o.brewMode==="hot"?(o.strength==="strong"?252:255):300,[b,z]=N.useState(C),m=new Set(Array.isArray(o.missingFields)?o.missingFields:[]),F=o.bean||{},O=m.has("origin"),P=m.has("processingMethod"),D=m.has("description")||m.has("flavors")||m.has("flavors or description"),[L,U]=N.useState(F.origin||""),[V,W]=N.useState(F.processingMethod||""),[Y,K]=N.useState((Array.isArray(F.flavors)&&F.flavors.length?F.flavors.join(", "):F.description)||""),ro=[["unknown","Unknown"],["light","Light"],["medium_light","Medium-light"],["medium","Medium"],["medium_dark","Medium-dark"],["dark","Dark"]],[rl,setRl]=N.useState(ro.some(A=>A[0]===F.roastLevel)?F.roastLevel:"unknown"),J=Array.isArray(o.profileOptions)?o.profileOptions:[],ee=o.suggestedProfile||"neutral_classic";function oe(A){const Q=J.find(G=>G.id===A);return Q?`${Q.emoji||"☕"} ${Q.labelEn||Q.id}`:A}const Z=rl!=="unknown",B=v.trim().length>0&&x.trim().length>0&&(!O||L.trim().length>0)&&(!P||V.trim().length>0)&&(!D||Y.trim().length>0)&&Z;function R(){const A=b!==null?{finalDrinkMl:b}:{};O&&(A.origin=L.trim());P&&V.trim()&&(A.processingMethod=V.trim());D&&(A.description=Y.trim());A.roastLevel=rl;return A}return i.jsx("div",{className:"fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/45 px-4 py-6",role:"presentation",children:i.jsxs("dialog",{open:!0,"aria-labelledby":"bean-confirmation-title",className:"max-h-[92vh] w-full max-w-md overflow-y-auto rounded-card bg-ivory p-6 shadow-2xl",children:[i.jsx("h2",{id:"bean-confirmation-title",className:"font-heading text-3xl text-espresso",children:"Confirm Below Details"}),i.jsxs("div",{className:"mt-5 space-y-4",children:[i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Rostery/Café",i.jsx("input",{value:v,onChange:A=>h(Xl(A.target.value,ai)),maxLength:ai,disabled:c,className:`mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal\n                         text-espresso focus-visible:outline-2 focus-visible:outline-terracotta`,placeholder:"Max 40 characters"})]}),i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Bean name",i.jsx("input",{value:x,onChange:A=>S(Xl(A.target.value,ui)),maxLength:ui,disabled:c,className:`mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal\n                         text-espresso focus-visible:outline-2 focus-visible:outline-terracotta`,placeholder:"Max 60 characters"})]}),O&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Origin",i.jsx("input",{value:L,onChange:A=>U(A.target.value.slice(0,100)),maxLength:100,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: Yemen / Ethiopia"})]}),P&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Processing method",i.jsxs("select",{value:V,onChange:A=>W(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:[i.jsx("option",{value:"",children:"Select process"}),["washed","natural","honey","anaerobic","co-fermented","infused"].map(A=>i.jsx("option",{value:A,children:A},A))]})]}),D&&i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Tasting notes / description",i.jsx("textarea",{value:Y,onChange:A=>K(A.target.value.slice(0,200)),maxLength:200,rows:3,disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",placeholder:"Example: red fruits, chocolate, floral"})]}),i.jsxs("label",{className:"block text-sm font-semibold text-espresso",children:["Roast level",i.jsx("select",{value:rl,onChange:A=>setRl(A.target.value),disabled:c,className:"mt-2 w-full rounded-card border border-sage/40 bg-white px-4 py-3 font-normal text-espresso focus-visible:outline-2 focus-visible:outline-terracotta",children:ro.map(A=>i.jsx("option",{value:A[0],children:A[1]},A[0]))}),rl==="unknown"&&i.jsx("p",{className:"mt-2 text-xs text-red-700",children:"Select the roast level before creating the recipe."})]}),J.length>0&&i.jsxs("div",{className:"rounded-card border border-sage/30 bg-white p-3",children:[i.jsx("p",{className:"text-sm font-semibold text-espresso",children:"Brew profile"}),i.jsxs("p",{className:"mt-2 inline-flex rounded-full bg-sage/10 px-3 py-1 text-xs font-semibold text-sage",children:["Preliminary guess: ",oe(ee)]}),i.jsx("p",{className:"mt-2 text-xs text-sage",children:"Final profile is chosen after you confirm the bean details."})]}),o.strength&&i.jsxs("div",{className:"flex items-center justify-between gap-2 rounded-card border border-sage/30 bg-white p-3",children:[i.jsx("p",{className:"text-sm font-semibold text-espresso",children:"Strength"}),i.jsx("span",{className:"inline-flex rounded-full bg-espresso/10 px-3 py-1 text-xs font-semibold text-espresso",children:o.strength==="strong"?"Strong":"Soft"})]}),i.jsxs("fieldset",{disabled:c,children:[i.jsx("legend",{className:"text-sm font-semibold text-espresso",children:"Total Drink ml"}),i.jsx("div",{className:"mt-2 grid grid-cols-5 gap-2",children:E.map(A=>{const Q=b===A;return i.jsx("button",{type:"button","aria-pressed":Q,onClick:()=>z(A),className:`min-h-touch rounded-2xl border px-2 py-2 text-sm font-semibold transition\n                      ${Q?"border-espresso bg-espresso text-ivory":"border-sage/40 bg-white text-espresso"}`,children:A},A)})})]}),a&&i.jsx("p",{role:"alert",className:"mt-4 text-sm text-red-700",children:a}),i.jsxs("div",{className:"mt-6 space-y-3",children:[i.jsx("button",{type:"button",disabled:!B||c,onClick:()=>d(v.trim(),x.trim(),R()),className:`w-full min-h-touch rounded-card bg-espresso px-4 py-3 font-semibold text-ivory\n                       disabled:cursor-not-allowed disabled:opacity-40`,children:c?"Creating recipe…":"Confirm and create recipe"}),i.jsx("button",{type:"button",disabled:c,onClick:p,className:`w-full min-h-touch rounded-card border border-sage/50 px-4 py-3 font-semibold\n                       text-espresso disabled:opacity-40`,children:"Cancel"})]})]})]})})}';
     patched = patched.slice(0, componentStart) + replacement + patched.slice(componentEnd);
   }
   patched = patched.replace(
@@ -4962,6 +5026,47 @@ function patchRecipeStyleFrontendScript(script) {
     ']}),!a&&i.jsxs("section",{"aria-labelledby":"bridge-heading"',
     ']}),!a&&i.jsxs("section",{"aria-labelledby":"rating-heading",children:[i.jsx("h2",{id:"rating-heading",className:"font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3",children:"How was the cup?"}),i.jsxs("div",{className:"bg-white rounded-card p-4 space-y-3",children:[i.jsx("p",{className:"text-sm text-espresso/70",children:"Your feedback helps calibrate future recipes."}),i.jsxs("div",{className:"grid grid-cols-2 gap-3",children:[i.jsx("button",{type:"button","aria-pressed":h===1,onClick:()=>C(1),className:`min-h-touch rounded-card border px-4 py-3 font-body font-semibold ${h===1?"border-sage bg-sage/20 text-espresso":"border-sage/30 text-espresso"}`,children:"👍 Good"}),i.jsx("button",{type:"button","aria-pressed":h===-1,onClick:()=>C(-1),className:`min-h-touch rounded-card border px-4 py-3 font-body font-semibold ${h===-1?"border-terracotta bg-terracotta/10 text-espresso":"border-sage/30 text-espresso"}`,children:"👎 Needs work"})]}),h===-1&&i.jsxs("div",{className:"rounded-card border border-terracotta/20 bg-terracotta/5 p-3",children:[i.jsx("p",{className:"text-xs font-semibold uppercase tracking-widest text-terracotta",children:"What was wrong?"}),i.jsx("div",{className:"mt-2 grid grid-cols-2 gap-2",children:complaintChoices.map(([b,z])=>i.jsx("button",{type:"button","aria-pressed":B===b,onClick:()=>C(-1,b),className:`rounded-2xl border px-3 py-2 text-sm font-semibold ${B===b?"border-terracotta bg-terracotta/20 text-espresso":"border-sage/30 text-espresso"}`,children:z},b))})]}),h===-1&&B&&i.jsx("button",{type:"button",disabled:R,onClick:G,className:"w-full min-h-touch rounded-card bg-espresso px-4 py-3 font-semibold text-ivory disabled:opacity-50",children:R?"Re-tuning…":"Re-tune this recipe"}),S&&i.jsx("p",{role:"alert",className:"text-xs text-red-700",children:S})]})]}),!a&&i.jsxs("section",{"aria-labelledby":"bridge-heading"'
   );
+  // --- Strength selector: add useState("strong") and segmented control after brew mode selector ---
+  patched = patched.replace(
+    '[a,d]=N.useState("cold"),[p,v]=N.useState([]),[h,x]=N.useState(""),[S,E]=N.useState({kind:"upload"}),[C,b]=N.useState(null),',
+    '[a,d]=N.useState("cold"),[jk,Jk]=N.useState("strong"),[p,v]=N.useState([]),[h,x]=N.useState(""),[S,E]=N.useState({kind:"upload"}),[C,b]=N.useState(null),'
+  );
+  // Pass strength to wm call
+  patched = patched.replace(
+    'const I=await wm(le,a,X);',
+    'const I=await wm(le,a,X,jk);'
+  );
+  // Add strength param to wm function and append to FormData
+  patched = patched.replace(
+    'async function wm(o,c,a=""){const d=new FormData;for(const h of o)d.append("images",h);d.append("brewMode",c);',
+    'async function wm(o,c,a="",t="strong"){const d=new FormData;for(const h of o)d.append("images",h);d.append("brewMode",c);d.append("strength",t);'
+  );
+  // Inject strength selector UI after brew mode selector
+  patched = patched.replace(
+    'i.jsx(mh,{value:a,onChange:d,disabled:ne})]}),i.jsxs("section",{"aria-labelledby":"upload-heading"',
+    'i.jsx(mh,{value:a,onChange:d,disabled:ne}),i.jsx("div",{role:"radiogroup","aria-label":"Brew strength",className:"mt-3 grid grid-cols-2 gap-2",children:[["strong","Strong"],["soft","Soft"]].map(([St,Sl])=>{const Sp=jk===St;return i.jsx("button",{type:"button",role:"radio","aria-checked":Sp,"aria-label":Sl,onClick:()=>Jk(St),disabled:ne,className:`min-h-touch select-none rounded-[18px] border px-4 py-3 text-center font-body text-sm font-semibold transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta ${Sp?"border-espresso bg-espresso text-ivory":"border-sage/30 bg-white text-espresso"} ${ne?"opacity-50 cursor-not-allowed":""}`,children:Sl},St)})})]}),i.jsxs("section",{"aria-labelledby":"upload-heading"'
+  );
+  // Show strength on result page (after profile label)
+  patched = patched.replace(
+    'o.bean.origin&&i.jsx("p",{className:"text-ivory/70 text-sm",children:o.bean.origin}),actualProfileLabel&&i.jsx("p",{className:"mt-3 inline-flex rounded-full bg-sage/20 px-3 py-1 text-xs font-semibold text-sage",children:actualProfileLabel}),o.tasteRationale',
+    'o.bean.origin&&i.jsx("p",{className:"text-ivory/70 text-sm",children:o.bean.origin}),actualProfileLabel&&i.jsx("p",{className:"mt-3 inline-flex rounded-full bg-sage/20 px-3 py-1 text-xs font-semibold text-sage",children:actualProfileLabel}),o.strength&&i.jsx("p",{className:"mt-2 inline-flex rounded-full bg-ivory/10 px-3 py-1 text-xs font-semibold text-ivory/80",children:o.strength==="strong"?"Strong":"Soft"}),o.tasteRationale'
+  );
+  const requiredStrengthMarkers = [
+    '[a,d]=N.useState("cold"),[jk,Jk]=N.useState("strong")',
+    'const I=await wm(le,a,X,jk);',
+    'd.append("strength",t);',
+    '[["strong","Strong"],["soft","Soft"]]',
+    'o.strength==="strong"?[210,224,238,252,266]:uh',
+    'o.strength==="strong"?252:255',
+    'o.strength&&i.jsxs("div"',
+    'o.strength&&i.jsx("p"'
+  ];
+  for (const marker of requiredStrengthMarkers) {
+    const count = patched.split(marker).length - 1;
+    if (count !== 1) {
+      throw new InternalError("Production frontend strength patch is incompatible with this asset");
+    }
+  }
   return patched;
 }
 __name(patchRecipeStyleFrontendScript, "patchRecipeStyleFrontendScript");

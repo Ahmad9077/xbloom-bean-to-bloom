@@ -32,6 +32,7 @@ const COLD_RECIPE: Recipe = {
   machine: "xBloom Studio",
   dripper: "Omni",
   brewMode: "cold",
+  strength: "strong",
   brewRatio: "1:10",
   totalVolumeMl: 160,
   doseG: 16,
@@ -82,6 +83,7 @@ const HOT_RECIPE: Recipe = {
   machine: "xBloom Studio",
   dripper: "Omni",
   brewMode: "hot",
+  strength: "strong",
   brewRatio: "1:14",
   totalVolumeMl: 224,
   doseG: 16,
@@ -133,6 +135,11 @@ beforeEach(() => {
 });
 
 describe("RecipeResult — cold recipe", () => {
+  it("shows the stored strength", () => {
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
+    expect(screen.getByText("Strong")).toBeInTheDocument();
+  });
+
   it("renders the recipe name", () => {
     render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(

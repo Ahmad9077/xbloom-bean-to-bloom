@@ -18,6 +18,9 @@ const MIGRATION_SQL = [
   readFileSync(join(__dirname, "../migrations/011_bean_profile_cache.sql"), "utf8"),
   readFileSync(join(__dirname, "../migrations/012_drop_whatsapp_user_links.sql"), "utf8"),
   readFileSync(join(__dirname, "../migrations/013_hybrid_engine_feedback.sql"), "utf8"),
+  // The legacy src handler does not use pending confirmations, so migration 014 is excluded
+  // here. test/production-strength-flow.test.ts creates the production confirmation schema and
+  // applies migration 014 before exercising the deployed root Worker end to end.
 ].join("\n");
 
 // ---------------------------------------------------------------------------

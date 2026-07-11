@@ -48,6 +48,7 @@ export async function handleFromImages(
   }
 
   const brewMode = parseBrewMode(formData);
+  const strength = parseBrewStrength(formData);
 
   if (env.TURNSTILE_SECRET_KEY) {
     const token = formData.get("cf-turnstile-response");
@@ -77,6 +78,7 @@ export async function handleFromImages(
   const recipe = {
     ...generateRecipe(sanitizedBean, "Other", brewMode),
     name: recipeName,
+    strength,
   };
   validateRecipeInvariants(recipe);
 
@@ -155,4 +157,14 @@ function parseBrewMode(formData: FormData): "cold" | "hot" {
   if (typeof raw !== "string") throw new ClientError('"brewMode" must be a text value');
   if (raw === "cold" || raw === "hot") return raw;
   throw new ClientError(`Invalid brewMode "${raw}"; must be "cold" or "hot"`);
+}
+
+function parseBrewStrength(formData: FormData): "strong" | "soft" {
+  const raw = formData.get("strength");
+  if (raw === null || raw === undefined || raw === "") {
+    throw new ClientError('Brew strength is required. Choose "strong" or "soft".');
+  }
+  if (typeof raw !== "string") throw new ClientError('"strength" must be a text value');
+  if (raw === "strong" || raw === "soft") return raw;
+  throw new ClientError(`Invalid strength "${raw}"; must be "strong" or "soft"`);
 }

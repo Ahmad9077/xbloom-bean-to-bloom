@@ -1,6 +1,6 @@
 // Phase 1 recipe-cache fingerprinting.
 // Keep this deliberately narrow: confirmed roastery/bean + brew mode + target
-// drink size + selected profile + recipe rules version. Origin/process/notes
+// drink size + selected profile + recipe rules version + strength. Origin/process/notes
 // are intentionally excluded because they can vary across photos for the same
 // bag.
 
@@ -29,7 +29,11 @@ export async function recipeFingerprint({
   rulesVersion = RULES_VERSION,
   revision = 0,
   engineVersion = "table",
+  strength,
 }) {
+  if (strength !== "strong" && strength !== "soft") {
+    throw new Error(`Unknown brew strength: ${String(strength)}`);
+  }
   const source = [
     normalizeFingerprintPart(roastery),
     normalizeFingerprintPart(beanName),
@@ -37,6 +41,7 @@ export async function recipeFingerprint({
     String(finalDrinkMl),
     profile,
     rulesVersion,
+    `strength:${strength}`,
     `rev:${Number.isInteger(revision) && revision >= 0 ? revision : 0}`,
     `engine:${normalizeFingerprintPart(engineVersion)}`,
   ].join("|");

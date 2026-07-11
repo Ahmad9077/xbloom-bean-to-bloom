@@ -113,6 +113,30 @@ describe("production Worker source safeguards", () => {
     expect(workerSource).toContain("await rememberBeanRecipeRevision(");
   });
 
+  it("validates confirmation drink sizes against the persisted strength menu", () => {
+    expect(workerSource).toContain(
+      "validateRecipePreferencesForMode(preferences, pending.brew_mode, pendingStrength)",
+    );
+    expect(workerSource).toContain(
+      "function validateRecipePreferencesForMode(preferences, brewMode, strength)",
+    );
+    expect(workerSource).toContain("const choices = getFinalDrinkMenu(brewMode, strength)");
+  });
+
+  it("fails hard when internal recipe strength is missing or invalid", () => {
+    expect(workerSource).toContain("function requireInternalBrewStrength(value)");
+    expect(workerSource).toContain("const strength = requireInternalBrewStrength(data.strength)");
+    expect(workerSource).toContain(
+      "const strength = requireInternalBrewStrength(effectiveEngineMeta?.strength)",
+    );
+    expect(workerSource).toContain(
+      'if (recipe.strength !== "strong" && recipe.strength !== "soft")',
+    );
+    expect(workerSource).not.toContain(
+      'data.strength === "strong" || data.strength === "soft" ? data.strength : "strong"',
+    );
+  });
+
   it("stores low-rating complaints and exposes a retune endpoint", () => {
     expect(workerSource).toContain("rating_complaint");
     expect(workerSource).toContain("function parseRecipeComplaint");

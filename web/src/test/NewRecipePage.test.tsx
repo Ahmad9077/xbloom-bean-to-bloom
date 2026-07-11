@@ -80,6 +80,20 @@ describe("NewRecipePage — brew mode", () => {
   });
 });
 
+describe("NewRecipePage — brew strength", () => {
+  it("Strong is selected on the left by default", () => {
+    renderPage();
+    expect(screen.getByRole("radio", { name: "Strong" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Soft" })).not.toBeChecked();
+  });
+
+  it("user can switch to Soft", async () => {
+    renderPage();
+    await userEvent.click(screen.getByRole("radio", { name: "Soft" }));
+    expect(screen.getByRole("radio", { name: "Soft" })).toBeChecked();
+  });
+});
+
 describe("NewRecipePage — photo upload", () => {
   it("submit button is disabled when no photos", () => {
     renderPage();
@@ -133,7 +147,7 @@ describe("NewRecipePage — submission", () => {
     await userEvent.upload(albumInput, makeJpeg());
     await userEvent.click(screen.getByRole("button", { name: /create my recipe/i }));
     await waitFor(() => {
-      expect(mockApiCreateRecipe).toHaveBeenCalledWith(expect.any(Array), "cold");
+      expect(mockApiCreateRecipe).toHaveBeenCalledWith(expect.any(Array), "cold", "strong");
     });
   });
 
@@ -149,7 +163,23 @@ describe("NewRecipePage — submission", () => {
     await userEvent.upload(albumInput, makeJpeg());
     await userEvent.click(screen.getByRole("button", { name: /create my recipe/i }));
     await waitFor(() => {
-      expect(mockApiCreateRecipe).toHaveBeenCalledWith(expect.any(Array), "hot");
+      expect(mockApiCreateRecipe).toHaveBeenCalledWith(expect.any(Array), "hot", "strong");
+    });
+  });
+
+  it("submits Soft when selected", async () => {
+    mockApiCreateRecipe.mockResolvedValue({
+      id: "recipe-soft",
+      link: "/recipes/recipe-soft",
+      recipe: {} as never,
+    });
+    renderPage();
+    await userEvent.click(screen.getByRole("radio", { name: "Soft" }));
+    const albumInput = screen.getByLabelText(/album input/i);
+    await userEvent.upload(albumInput, makeJpeg());
+    await userEvent.click(screen.getByRole("button", { name: /create my recipe/i }));
+    await waitFor(() => {
+      expect(mockApiCreateRecipe).toHaveBeenCalledWith(expect.any(Array), "cold", "soft");
     });
   });
 

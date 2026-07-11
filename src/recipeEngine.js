@@ -27,10 +27,17 @@ function assertBrewMode(brewMode) {
   }
 }
 
+function assertStrength(strength) {
+  if (strength !== "strong" && strength !== "soft") {
+    throw new Error(`Unknown brew strength: ${String(strength)}`);
+  }
+}
+
 export function buildRecipe({
   profile,
   brewMode,
   finalDrinkMl,
+  strength,
   beanMeta,
   username,
   roastery,
@@ -43,7 +50,7 @@ export function buildRecipe({
   retuneRevision,
   ratingComplaint,
 }) {
-  const plan = getRecipePlan({ profile, brewMode, finalDrinkMl });
+  const plan = getRecipePlan({ profile, brewMode, finalDrinkMl, strength });
   const { cell, params, pourCount } = plan;
   const temps = params.tempsByPourCount[String(pourCount)];
   const pauses = params.pausesByPourCount[String(pourCount)];
@@ -73,6 +80,7 @@ export function buildRecipe({
     machine: "xBloom Studio",
     dripper: "Other",
     brewMode,
+    strength,
     brewRatio: `1:${cell.ratioN}`,
     totalVolumeMl: cell.waterMl,
     doseG: cell.doseG,
@@ -102,19 +110,21 @@ export function buildRecipe({
   return recipe;
 }
 
-export function getRecipePlan({ profile, brewMode, finalDrinkMl }) {
+export function getRecipePlan({ profile, brewMode, finalDrinkMl, strength }) {
   assertProfile(profile);
   assertBrewMode(brewMode);
+  assertStrength(strength);
   const modeTable = table.recipes[profile][brewMode];
-  const cell = modeTable.sizes[String(finalDrinkMl)];
+  const cell = modeTable.sizesByStrength?.[strength]?.[String(finalDrinkMl)];
   if (!cell) {
-    throw new Error(`No recipe-table cell for ${profile}.${brewMode}.${finalDrinkMl}`);
+    throw new Error(`No recipe-table cell for ${profile}.${brewMode}.${strength}.${finalDrinkMl}`);
   }
   const params = modeTable.params;
   const pourCount = cell.pours.length;
   return {
     profile,
     brewMode,
+    strength,
     finalDrinkMl,
     cell,
     params,
@@ -137,15 +147,27 @@ export function getRecipePlan({ profile, brewMode, finalDrinkMl }) {
   };
 }
 
-export function getRecipeCell({ profile, brewMode, finalDrinkMl }) {
+export function getRecipeCell({ profile, brewMode, finalDrinkMl, strength }) {
   assertProfile(profile);
   assertBrewMode(brewMode);
-  return table.recipes[profile][brewMode].sizes[String(finalDrinkMl)] ?? null;
+  assertStrength(strength);
+  return (
+    table.recipes[profile][brewMode].sizesByStrength?.[strength]?.[String(finalDrinkMl)] ?? null
+  );
 }
 
-export function selectTableFinalDrinkMl(brewMode, requestedFinalDrinkMl) {
+export function getFinalDrinkMenu(brewMode, strength) {
   assertBrewMode(brewMode);
-  const menu = table.menus[brewMode].finalDrinkMl;
+  assertStrength(strength);
+  const menu = table.menus[brewMode].finalDrinkMlByStrength?.[strength];
+  if (!Array.isArray(menu) || menu.length === 0) {
+    throw new Error(`No final-drink menu for ${brewMode}.${strength}`);
+  }
+  return menu;
+}
+
+export function selectTableFinalDrinkMl(brewMode, requestedFinalDrinkMl, strength) {
+  const menu = getFinalDrinkMenu(brewMode, strength);
   if (menu.includes(requestedFinalDrinkMl)) return requestedFinalDrinkMl;
   return menu.reduce((best, candidate) => {
     const bestDelta = Math.abs(best - requestedFinalDrinkMl);

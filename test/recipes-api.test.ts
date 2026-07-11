@@ -121,12 +121,14 @@ function makeImagesRequest(
   images: Array<{ bytes: Uint8Array; name: string; mime: string }>,
   cookieHeader: string,
   brewMode?: "cold" | "hot",
+  strength: "strong" | "soft" = "strong",
 ): Request {
   const fd = new FormData();
   for (const img of images) {
     fd.append("images", new File([img.bytes], img.name, { type: img.mime }));
   }
   if (brewMode) fd.append("brewMode", brewMode);
+  fd.append("strength", strength);
   return new Request("http://localhost/api/recipes/from-images", {
     method: "POST",
     body: fd,
@@ -247,6 +249,7 @@ describe("POST /api/recipes/from-images — happy path", () => {
     const { cookieHeader } = await createTestSession();
     const fd = new FormData();
     fd.append("image", new File([makeJpegBytes()], "bag.jpg", { type: "image/jpeg" }));
+    fd.append("strength", "strong");
     const req = new Request("http://localhost/api/recipes/from-images", {
       method: "POST",
       body: fd,
@@ -295,6 +298,7 @@ describe("POST /api/recipes/from-images — image validation", () => {
     const buf = new Uint8Array(32).fill(0xaa);
     const fd = new FormData();
     fd.append("images", new File([buf], "bad.bmp", { type: "image/bmp" }));
+    fd.append("strength", "strong");
     const req = new Request("http://localhost/api/recipes/from-images", {
       method: "POST",
       body: fd,
@@ -326,6 +330,7 @@ describe("POST /api/recipes/from-images — image validation", () => {
     ] as const) {
       const fd = new FormData();
       fd.append("images", new File([bytes], name, { type: mime }));
+      fd.append("strength", "strong");
       const req = new Request("http://localhost/api/recipes/from-images", {
         method: "POST",
         body: fd,
@@ -454,6 +459,78 @@ describe("recipe generation rate limit", () => {
 // ---------------------------------------------------------------------------
 // Unicode and Arabic bean names (sanitization preserved)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Brew strength — required on every new recipe
+// ---------------------------------------------------------------------------
+
+describe("brew strength validation", () => {
+  it("returns 400 when strength is missing from from-images request", async () => {
+    const { cookieHeader } = await createTestSession();
+    const fd = new FormData();
+    fd.append("images", new File([makeJpegBytes()], "bag.jpg", { type: "image/jpeg" }));
+    fd.append("brewMode", "hot");
+    // No strength field
+    const req = new Request("http://localhost/api/recipes/from-images", {
+      method: "POST",
+      body: fd,
+      headers: { Cookie: cookieHeader, Origin: "http://localhost" },
+    });
+    const res = await worker.fetch(req, makeEnv());
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toMatch(/strength/i);
+  });
+
+  it("returns 400 when strength is an invalid value", async () => {
+    const { cookieHeader } = await createTestSession();
+    const fd = new FormData();
+    fd.append("images", new File([makeJpegBytes()], "bag.jpg", { type: "image/jpeg" }));
+    fd.append("brewMode", "hot");
+    fd.append("strength", "medium");
+    const req = new Request("http://localhost/api/recipes/from-images", {
+      method: "POST",
+      body: fd,
+      headers: { Cookie: cookieHeader, Origin: "http://localhost" },
+    });
+    const res = await worker.fetch(req, makeEnv());
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 201 when strength=strong is provided", async () => {
+    const { cookieHeader } = await createTestSession();
+    const fd = new FormData();
+    fd.append("images", new File([makeJpegBytes()], "bag.jpg", { type: "image/jpeg" }));
+    fd.append("brewMode", "hot");
+    fd.append("strength", "strong");
+    const req = new Request("http://localhost/api/recipes/from-images", {
+      method: "POST",
+      body: fd,
+      headers: { Cookie: cookieHeader, Origin: "http://localhost" },
+    });
+    const res = await worker.fetch(req, makeEnv());
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { recipe: { strength: string } };
+    expect(body.recipe.strength).toBe("strong");
+  });
+
+  it("returns 201 when strength=soft is provided", async () => {
+    const { cookieHeader } = await createTestSession();
+    const fd = new FormData();
+    fd.append("images", new File([makeJpegBytes()], "bag.jpg", { type: "image/jpeg" }));
+    fd.append("brewMode", "cold");
+    fd.append("strength", "soft");
+    const req = new Request("http://localhost/api/recipes/from-images", {
+      method: "POST",
+      body: fd,
+      headers: { Cookie: cookieHeader, Origin: "http://localhost" },
+    });
+    const res = await worker.fetch(req, makeEnv());
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { recipe: { strength: string } };
+    expect(body.recipe.strength).toBe("soft");
+  });
+});
 
 describe("Unicode beanName sanitization", () => {
   it("preserves Arabic script in beanName", async () => {

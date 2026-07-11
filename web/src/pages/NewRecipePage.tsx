@@ -2,8 +2,9 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, apiCreateRecipe, compressImage } from "../api.js";
 import BrewModeSelector from "../components/BrewModeSelector.js";
+import BrewStrengthSelector from "../components/BrewStrengthSelector.js";
 import MultiPhotoUpload from "../components/MultiPhotoUpload.js";
-import type { BrewMode } from "../types.js";
+import type { BrewMode, BrewStrength } from "../types.js";
 
 type Stage =
   | { kind: "upload" }
@@ -14,6 +15,7 @@ type Stage =
 export default function NewRecipePage() {
   const navigate = useNavigate();
   const [brewMode, setBrewMode] = useState<BrewMode>("cold");
+  const [strength, setStrength] = useState<BrewStrength>("strong");
   const [files, setFiles] = useState<File[]>([]);
   const [stage, setStage] = useState<Stage>({ kind: "upload" });
 
@@ -34,7 +36,7 @@ export default function NewRecipePage() {
     setStage({ kind: "loading", message: "Analysing your coffee bag…" });
 
     try {
-      const result = await apiCreateRecipe(compressed, brewMode);
+      const result = await apiCreateRecipe(compressed, brewMode, strength);
       setFiles([]);
       navigate(`/recipes/${result.id}`);
     } catch (err) {
@@ -70,6 +72,9 @@ export default function NewRecipePage() {
             How do you want your coffee?
           </h2>
           <BrewModeSelector value={brewMode} onChange={setBrewMode} disabled={isLoading} />
+          <div className="mt-3">
+            <BrewStrengthSelector value={strength} onChange={setStrength} disabled={isLoading} />
+          </div>
         </section>
 
         {/* Step 2 — photos */}

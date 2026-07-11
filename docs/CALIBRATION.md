@@ -1,4 +1,4 @@
-# CALIBRATION.md — Taste Fix Playbook (v1.0)
+# CALIBRATION.md — Taste Fix Playbook (v1.3)
 
 **Codex: this file is your only authority for taste-related edits to `recipe-table.json`. Follow it exactly. Never improvise a fix.**
 
@@ -45,14 +45,38 @@ Codex: look up that recipe row in D1 → read its `profile` (bright_funky) and m
 
 Per profile: brew the table recipe → apply at most 2 fixes via Codex → confirm on a second bean → lock. Order: neutral_classic → bright_clean → bright_funky → dark_roasty. Target: rulesVersion ~1.0.4–1.0.8 by Sunday night, then freeze.
 
-## Watch items from v1.0 authoring
+## v1.3.0 strength cells (owner-approved structural change)
 
-- `dark_roasty.hot` at 210/225 runs 1:15 (strongest exact pair available) — if those sizes taste heavy, the temp −2 fix is the right lever.
-- `neutral_classic.hot` 270 runs 18g@1:15 (strong side) — same lever if needed.
+rulesVersion bumped from 1.2.0 → 1.3.0.  All old fingerprints are invalidated.
+
+### Recipe table structure change
+`recipes[profile][mode].sizes` replaced by `recipes[profile][mode].sizesByStrength.{strong,soft}`.
+Hot mode now has TWO menus: Strong `[210,224,238,252,266]` and Soft `[210,225,240,255,270]`.
+Cold menus `[240,270,300,330,360]` unchanged for both strengths.
+
+### Approved hot cells (ALL profiles — params unchanged)
+| Strength | ratioN | Sizes (ml) |
+|----------|--------|------------|
+| Soft | **15** (≤15 rule) | 210 225 240 255 270 |
+| Strong | **14** (exact) | 210 224 238 252 266 |
+
+### Approved cold cells
+| Profile group | Soft ratioN | Strong ratioN |
+|---------------|-------------|---------------|
+| bright_clean, bright_funky | 10 | 8 (360: 9, intentional max-dose exception) |
+| neutral_classic | 10 | 9 |
+| dark_roasty | 11 | 9 |
+
+Ice stays within 96–144 g for all cold cells.
+
+### What must NOT change for taste calibration
+The strength cells are **structural** (owner-approved, not calibration targets).
+Calibration edits still only touch `params` blocks (grindSize, temps, mainFlow, rpm, pauses).
+Never edit `sizesByStrength` cells for taste — that would require owner approval and a re-version bump.
 
 ## Watch items from v1.2.0 cold body fix (Other dripper, doses to 25g)
 
-- All cold cells were rebuilt for fuller body: bright profiles brew 1:9 (60% water, uniform 1:15 overall drink); neutral ~1:16 overall; dark ~1:17 overall. The old 18g dose cap is gone — the dripper is now "Other", app-verified up to 25g.
-- Doses above 18g (bright 300/330/360, neutral 300/330/360, dark 330/360) are new territory: if a cup tastes muddy/over-heavy, the first lever is temps −1, NOT a dose cut (dose/ratio remain structural and owner-approved).
+- v1.3 supersedes the single v1.2 cold ladder: Strong uses the approved 1:8–1:9 cells and Soft uses 1:10–1:11. The old 18g dose cap remains removed — the dripper is "Other", app-verified up to 25g.
+- Doses above 18g are intentional in the approved strength ladders. If a cup tastes muddy/over-heavy, the first lever is temps −1, NOT a dose cut (dose/ratio remain structural and owner-approved).
 - 360ml cells at neutral (1:10) and dark (1:11) run slightly more machine water (~64%) to keep ice ≤144g — expect them marginally less ice-cold; serve in a chilled glass if needed.
 - If a cold cup is now too intense, the symptom fix table applies unchanged (it never touches dose/ratio).

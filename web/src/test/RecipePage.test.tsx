@@ -35,6 +35,7 @@ const RECIPE: Recipe = {
   machine: "xBloom Studio",
   dripper: "Omni",
   brewMode: "hot",
+  strength: "strong",
   brewRatio: "1:14",
   totalVolumeMl: 224,
   doseG: 16,

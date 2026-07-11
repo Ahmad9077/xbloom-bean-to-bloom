@@ -17,6 +17,7 @@ describe("recipeFingerprint", () => {
     finalDrinkMl: 300,
     profile: "bright_funky",
     rulesVersion: "1.1.0",
+    strength: "strong",
   };
 
   it("separates retune revisions for the same bean and target", async () => {
@@ -29,5 +30,17 @@ describe("recipeFingerprint", () => {
     await expect(recipeFingerprint({ ...base, engineVersion: "hybrid-1.1.0" })).resolves.not.toBe(
       await recipeFingerprint({ ...base, engineVersion: "hybrid-1.2.0" }),
     );
+  });
+
+  it("separates Strong and Soft recipes for the same bean and target", async () => {
+    await expect(recipeFingerprint({ ...base, strength: "strong" })).resolves.not.toBe(
+      await recipeFingerprint({ ...base, strength: "soft" }),
+    );
+  });
+
+  it("rejects missing or invalid strength instead of silently defaulting", async () => {
+    const { strength: _strength, ...withoutStrength } = base;
+    await expect(recipeFingerprint(withoutStrength)).rejects.toThrow(/strength/i);
+    await expect(recipeFingerprint({ ...base, strength: "medium" })).rejects.toThrow(/strength/i);
   });
 });
