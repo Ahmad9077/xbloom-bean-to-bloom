@@ -37,6 +37,7 @@ async function tapSliderAndRead(
   centerY: number,
   valueSelector: string,
   parseValue: (text: string) => number,
+  readValue?: (driver: Driver) => Promise<number>,
 ): Promise<number> {
   await driver
     .action("pointer", {
@@ -50,6 +51,8 @@ async function tapSliderAndRead(
     .perform();
 
   await driver.pause(180);
+
+  if (readValue) return readValue(driver);
 
   const tvEl = await driver.$(valueSelector);
   const actualText = await tvEl.getText();
@@ -101,6 +104,7 @@ export async function setSlider(
   maxRetries: number,
   jobId: string,
   stage: string,
+  readValue?: (driver: Driver) => Promise<number>,
 ): Promise<void> {
   const bounds = await getElementBounds(driver, sliderSelector);
   const centerY = Math.round(bounds.y + bounds.height / 2);
@@ -127,7 +131,14 @@ export async function setSlider(
       tapX = clampTapX(tapX + (targetValue - prevActual) * pxPerValue, trackLeft, trackRight);
     }
 
-    const actual = await tapSliderAndRead(driver, tapX, centerY, valueSelector, parseValue);
+    const actual = await tapSliderAndRead(
+      driver,
+      tapX,
+      centerY,
+      valueSelector,
+      parseValue,
+      readValue,
+    );
     lastActual = actual;
 
     if (actual === targetValue) {
@@ -155,7 +166,14 @@ export async function setSlider(
   const fineScanTrace: string[] = [];
   for (let scanAttempt = 0; scanAttempt < candidates.length; scanAttempt++) {
     const scanTapX = candidates[scanAttempt] ?? tapX;
-    const actual = await tapSliderAndRead(driver, scanTapX, centerY, valueSelector, parseValue);
+    const actual = await tapSliderAndRead(
+      driver,
+      scanTapX,
+      centerY,
+      valueSelector,
+      parseValue,
+      readValue,
+    );
     lastActual = actual;
     fineScanTrace.push(`${scanTapX}:${actual}`);
 
@@ -217,10 +235,6 @@ export async function setSliderRatio(
   maxRetries: number,
   jobId: string,
 ): Promise<void> {
-  const parseRatio = (text: string): number => {
-    const m = /^1:(\d+)$/.exec(text.trim());
-    return m ? Number.parseInt(m[1] ?? "0", 10) : 0;
-  };
   await setSlider(
     driver,
     s("coffeeWaterSb"),
@@ -228,11 +242,28 @@ export async function setSliderRatio(
     denominator,
     5,
     25,
-    parseRatio,
+    parseRatioBase,
     maxRetries,
     jobId,
     "ratio",
+    readSliderRatio,
   );
+}
+
+function parseRatioBase(text: string): number {
+  const m = /^1:(\d+)$/.exec(text.trim());
+  return m ? Number.parseInt(m[1] ?? "0", 10) : 0;
+}
+
+/** xBloom renders half-step ratios as two TextViews (for example `1:8` and
+ * `.5`). Always combine both fields so 1:8.5 can never be accepted as 1:8. */
+export async function readSliderRatio(driver: Driver): Promise<number> {
+  const baseEl = await driver.$(s("coffeeWaterTv"));
+  const halfStepEl = await driver.$(s("coffeeWaterdot5Tv"));
+  const base = parseRatioBase(await baseEl.getText());
+  const halfStep =
+    (await halfStepEl.isExisting()) && (await halfStepEl.getText()).trim() === ".5" ? 0.5 : 0;
+  return base + halfStep;
 }
 
 export async function setSliderGrind(

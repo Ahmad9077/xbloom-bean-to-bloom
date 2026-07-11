@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ErrorCode } from "../src/errors.js";
-import { setSlider, setSliderDose } from "../src/slider.js";
+import { setSlider, setSliderDose, setSliderRatio } from "../src/slider.js";
 
 type Driver = {
   $: (sel: string) => Promise<MockElement>;
@@ -208,5 +208,59 @@ describe("setSlider", () => {
     );
 
     expect(driver.moveSpy).toHaveBeenCalledWith({ x: 993, y: 763, origin: "viewport" });
+  });
+
+  it("does not mistake xBloom's split 1:8.5 display for 1:8", async () => {
+    let tapCount = 0;
+    const tapXs: number[] = [];
+    const action = vi.fn().mockImplementation(() => {
+      const chain: MockActionChain = {
+        move: (options) => {
+          const x = (options as { x?: number }).x;
+          if (x !== undefined) tapXs.push(x);
+          return chain;
+        },
+        down: () => chain,
+        pause: () => chain,
+        up: () => chain,
+        perform: async () => {
+          tapCount += 1;
+        },
+      };
+      return chain;
+    });
+    const commonElement = {
+      waitForExist: vi.fn().mockResolvedValue(undefined),
+      getLocation: vi.fn().mockResolvedValue({ x: 69, y: 905 }),
+      getSize: vi.fn().mockResolvedValue({ width: 942, height: 179 }),
+    };
+    const driver = {
+      $: vi.fn().mockImplementation(async (selector: string) => {
+        if (selector.includes("coffeeWaterSb")) {
+          return { ...commonElement, getText: vi.fn().mockResolvedValue("") };
+        }
+        if (selector.includes("coffeeWaterdot5Tv")) {
+          return {
+            ...commonElement,
+            isExisting: vi.fn().mockImplementation(async () => tapCount === 1),
+            getText: vi.fn().mockResolvedValue(".5"),
+          };
+        }
+        return { ...commonElement, getText: vi.fn().mockResolvedValue("1:8") };
+      }),
+      action,
+      pause: vi.fn().mockResolvedValue(undefined),
+    };
+
+    await setSliderRatio(
+      driver as unknown as import("../src/driver.js").Driver,
+      8,
+      3,
+      "job-ratio-8",
+    );
+
+    expect(action).toHaveBeenCalledTimes(2);
+    expect(tapXs[1]).toBeLessThan(tapXs[0] ?? 0);
+    expect(driver.$).toHaveBeenCalledWith(expect.stringContaining("coffeeWaterdot5Tv"));
   });
 });

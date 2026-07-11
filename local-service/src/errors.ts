@@ -38,7 +38,7 @@ export function toSafeMessage(err: unknown): string {
       case ErrorCode.APPIUM_SESSION_ERROR:
         return "The Mac bridge could not control the xBloom app. Please confirm the emulator is open, logged in, and on a stable connection.";
       case ErrorCode.SAVE_FAILED:
-        return "xBloom did not confirm that the recipe was saved. Please retry.";
+        return "xBloom could not open the final save screen. No recipe was created. Please retry once.";
       case ErrorCode.SHARE_LINK_FAILED:
         // These messages are fixed, user-facing strings produced by automation.ts.
         return err.message;

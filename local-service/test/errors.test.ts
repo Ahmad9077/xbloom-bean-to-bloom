@@ -62,6 +62,19 @@ describe("toSafeMessage", () => {
     expect(message).toContain("xBloom app");
   });
 
+  it("explains save-screen failures without exposing Webdriver details", () => {
+    const message = toSafeMessage(
+      new ServiceError(
+        ErrorCode.SAVE_FAILED,
+        "element (Save recipe) still not existing after 10000ms",
+        503,
+      ),
+    );
+    expect(message).toContain("No recipe was created");
+    expect(message).not.toContain("element");
+    expect(message).not.toContain("10000ms");
+  });
+
   it("returns a generic fallback for non-ServiceError throws", () => {
     const message = toSafeMessage(new Error("something internal"));
     expect(message).toBe("An internal error occurred");

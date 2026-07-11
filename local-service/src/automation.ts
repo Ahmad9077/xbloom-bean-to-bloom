@@ -5,6 +5,7 @@ import { ErrorCode, ServiceError } from "./errors.js";
 import { log } from "./logger.js";
 import { clickCreate, dryRunExit, navigateToRecipes } from "./navigation.js";
 import {
+  readSliderRatio,
   setSlider,
   setSliderDose,
   setSliderGrind,
@@ -297,14 +298,22 @@ async function addAndSetBypass(
 
 // ─── Verify pour total ────────────────────────────────────────────────────────
 
-async function verifyPourTotal(
+function parseMl(text: string): number {
+  return Number.parseInt(text.replace(/\D/g, ""), 10);
+}
+
+export async function verifyRecipeTotals(
   driver: Driver,
   expectedTotal: number,
+  expectedRatio: number,
   jobId: string,
 ): Promise<void> {
-  // Return the nested editor to its top; Appium 3's `mobile: scroll` requires a
-  // selector rather than direction/percent, so use deterministic touch gestures.
-  for (let i = 0; i < 2; i++) {
+  const currentVolumeEl = await driver.$(sel("volumeCurrentTv"));
+
+  // Return the nested editor to its top, but stop as soon as the totals are
+  // visible. A second blind gesture at the top lands on the ratio SeekBar.
+  for (let i = 0; i < 3; i++) {
+    if (await currentVolumeEl.isDisplayed().catch(() => false)) break;
     await driver
       .action("pointer", { id: "total-scroll", parameters: { pointerType: "touch" } })
       .move({ x: 540, y: 900, origin: "viewport" })
@@ -315,18 +324,38 @@ async function verifyPourTotal(
     await driver.pause(250);
   }
 
-  const tvEl = await driver.$(sel("volumeCurrentTv"));
-  await tvEl.waitForExist({ timeout: 5000 });
-  const text = await tvEl.getText();
-  const actual = Number.parseInt(text.replace(/\D/g, ""), 10);
-  if (actual !== expectedTotal) {
+  await currentVolumeEl.waitForDisplayed({ timeout: 5000 });
+  const targetVolumeEl = await driver.$(
+    `//*[@resource-id='${PKG}:id/volumeCurrentTv']/following-sibling::*[@resource-id='${PKG}:id/volumeSumTv'][1]`,
+  );
+  const machineVolumeEl = await driver.$(sel("volumeTv"));
+  const [currentVolume, targetVolume, machineVolume, actualRatio] = await Promise.all([
+    currentVolumeEl.getText().then(parseMl),
+    targetVolumeEl.getText().then(parseMl),
+    machineVolumeEl.getText().then(parseMl),
+    readSliderRatio(driver),
+  ]);
+
+  if (
+    currentVolume !== expectedTotal ||
+    targetVolume !== expectedTotal ||
+    machineVolume !== expectedTotal ||
+    actualRatio !== expectedRatio
+  ) {
     throw new ServiceError(
       ErrorCode.SLIDER_SET_FAILED,
-      `Pour total is ${actual}ml but expected ${expectedTotal}ml`,
+      `Final recipe mismatch: pours=${currentVolume}, target=${targetVolume}, machine=${machineVolume}, ratio=${actualRatio}; expected volume=${expectedTotal}, ratio=${expectedRatio}`,
       500,
     );
   }
-  log.info("Pour total verified", { jobId, stage: "verify_total", actual });
+  log.info("Recipe totals verified", {
+    jobId,
+    stage: "verify_total",
+    currentVolume,
+    targetVolume,
+    machineVolume,
+    actualRatio,
+  });
 }
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
@@ -478,7 +507,15 @@ async function saveRecipe(
   const titleTv = await driver.$(
     `android=new UiSelector().resourceId("${PKG}:id/titleTv").text("Save recipe")`,
   );
-  await titleTv.waitForExist({ timeout: 10000 });
+  try {
+    await titleTv.waitForExist({ timeout: 10000 });
+  } catch {
+    throw new ServiceError(
+      ErrorCode.SAVE_FAILED,
+      "xBloom did not open the recipe naming screen after Save",
+      503,
+    );
+  }
   log.info("Name screen visible", { jobId, stage: "save_name" });
 
   const textEt = await driver.$(sel("textEt"));
@@ -588,7 +625,7 @@ export async function createRecipe(
     await addAndSetBypass(driver, recipe.bypass, opts.maxRetries, jobId);
   }
 
-  await verifyPourTotal(driver, recipe.totalVolumeMl, jobId);
+  await verifyRecipeTotals(driver, recipe.totalVolumeMl, ratioN, jobId);
 
   if (opts.dryRun) {
     log.info("Dry-run complete — backing out", { jobId, stage: "dry_run_exit" });

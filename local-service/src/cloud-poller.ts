@@ -1,4 +1,4 @@
-import { toSafeMessage } from "./errors.js";
+import { toErrorCode, toSafeMessage } from "./errors.js";
 import { log } from "./logger.js";
 import { SerialQueue } from "./queue.js";
 import { runRecipeAutomation } from "./runner.js";
@@ -144,7 +144,16 @@ export function startCloudPoller(config: Config): () => void {
         log.info("Cloud bridge job completed", { stage: "cloud_job_completed", jobId: job.id });
       } catch (error) {
         const message = toSafeMessage(error);
-        log.error("Cloud bridge job failed", { stage: "cloud_job_failed", jobId: job.id });
+        log.error("Cloud bridge job failed", {
+          stage: "cloud_job_failed",
+          jobId: job.id,
+          errorCode: toErrorCode(error),
+          errorType: error instanceof Error ? error.name : "unknown",
+          diagnostic:
+            error instanceof Error
+              ? error.message.replace(/[\r\n]+/g, " ").slice(0, 500)
+              : "Non-Error throw",
+        });
         await complete(config, job.id, "failed", message).catch(() => {
           log.error("Could not report cloud bridge failure", {
             stage: "cloud_job_report_failed",
