@@ -66,8 +66,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 start_emulator() {
-  emulator -avd "$AVD_NAME" -no-window -no-audio -no-boot-anim -no-snapshot-save \
-    -gpu swiftshader_indirect \
+  emulator -avd "$AVD_NAME" -no-window -no-audio -no-boot-anim \
+    -no-snapshot-load -no-snapshot-save -gpu auto \
     >>"$RUNTIME_DIR/emulator.log" 2>&1 &
   emulator_pid="$!"
 }
