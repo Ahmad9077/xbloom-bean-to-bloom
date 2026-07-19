@@ -6,6 +6,7 @@ export const ErrorCode = {
   MISSING_CONFIRM_SAVE: "MISSING_CONFIRM_SAVE",
   DRY_RUN_CONFIRM_CONFLICT: "DRY_RUN_CONFIRM_CONFLICT",
   APPIUM_SESSION_ERROR: "APPIUM_SESSION_ERROR",
+  AUTH_REQUIRED: "AUTH_REQUIRED",
   NAVIGATION_ERROR: "NAVIGATION_ERROR",
   ELEMENT_NOT_FOUND: "ELEMENT_NOT_FOUND",
   SLIDER_SET_FAILED: "SLIDER_SET_FAILED",
@@ -37,6 +38,8 @@ export function toSafeMessage(err: unknown): string {
       case ErrorCode.NAVIGATION_ERROR:
       case ErrorCode.APPIUM_SESSION_ERROR:
         return "The Mac bridge could not control the xBloom app. Please confirm the emulator is open, logged in, and on a stable connection.";
+      case ErrorCode.AUTH_REQUIRED:
+        return "xBloom is signed out on the Mac. Please sign in to the xBloom app on the emulator, then retry.";
       case ErrorCode.SAVE_FAILED:
         return "xBloom could not open the final save screen. No recipe was created. Please retry once.";
       case ErrorCode.SHARE_LINK_FAILED:

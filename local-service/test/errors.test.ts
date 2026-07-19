@@ -62,6 +62,15 @@ describe("toSafeMessage", () => {
     expect(message).toContain("xBloom app");
   });
 
+  it("explains an expired xBloom session without exposing internal selectors", () => {
+    const message = toSafeMessage(
+      new ServiceError(ErrorCode.AUTH_REQUIRED, "xBloom login screen is displayed", 503),
+    );
+    expect(message).toContain("signed out on the Mac");
+    expect(message).toContain("sign in");
+    expect(message).not.toContain("selector");
+  });
+
   it("explains save-screen failures without exposing Webdriver details", () => {
     const message = toSafeMessage(
       new ServiceError(
