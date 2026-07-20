@@ -1,0 +1,24 @@
+{
+  "name": "Bean to Bloom",
+  "short_name": "Bean to Bloom",
+  "description": "Scan your coffee bag to generate an xBloom Studio recipe.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#fef8f6",
+  "theme_color": "#2d241e",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

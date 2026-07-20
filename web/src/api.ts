@@ -1,11 +1,20 @@
 import type {
   AdminUser,
+  AdminUserRecipeListResponse,
+  AdminUserRecipeResponse,
   AuthUser,
   BrewMode,
   BrewStrength,
   BridgeJob,
+  ConfirmationRecipeDetails,
+  CreateRecipeResponse,
+  CreatedRecipeResponse,
   Recipe,
+  RecipeComplaint,
   RecipeListItem,
+  RecipeRating,
+  RecipeRatingResponse,
+  RetunedRecipeResponse,
 } from "./types.js";
 
 export class ApiError extends Error {
@@ -71,14 +80,32 @@ export async function apiCreateRecipe(
   images: File[],
   brewMode: BrewMode,
   strength: BrewStrength,
-): Promise<{ id: string; link: string; recipe: Recipe }> {
+  productUrl = "",
+): Promise<CreateRecipeResponse> {
   const fd = new FormData();
   for (const img of images) fd.append("images", img);
   fd.append("brewMode", brewMode);
   fd.append("strength", strength);
+  const normalizedProductUrl = productUrl.trim();
+  if (normalizedProductUrl) fd.append("productUrl", normalizedProductUrl);
 
   const data = await req("/api/recipes/from-images", { method: "POST", body: fd });
-  return data as { id: string; link: string; recipe: Recipe };
+  return data as CreateRecipeResponse;
+}
+
+export async function apiConfirmRecipe(
+  confirmationId: string,
+  storeName: string,
+  beanName: string,
+  details: ConfirmationRecipeDetails,
+): Promise<CreatedRecipeResponse> {
+  const data = await jsonReq("/api/recipes/from-confirmation", "POST", {
+    confirmationId,
+    storeName,
+    beanName,
+    ...details,
+  });
+  return data as CreatedRecipeResponse;
 }
 
 export async function apiGetRecipe(id: string): Promise<Recipe> {
@@ -89,6 +116,30 @@ export async function apiGetRecipe(id: string): Promise<Recipe> {
 export async function apiGetRecipes(): Promise<RecipeListItem[]> {
   const data = await req("/api/recipes");
   return (data as { recipes: RecipeListItem[] }).recipes;
+}
+
+export async function apiRateRecipe(
+  recipeId: string,
+  value: Exclude<RecipeRating, null> | 0,
+  complaint: RecipeComplaint | null = null,
+): Promise<RecipeRatingResponse> {
+  const data = await jsonReq(`/api/recipes/${encodeURIComponent(recipeId)}/rating`, "POST", {
+    value,
+    complaint,
+  });
+  const response = data as {
+    rating?: RecipeRating;
+    complaint?: RecipeComplaint | null;
+  };
+  return {
+    rating: response.rating ?? null,
+    complaint: response.complaint ?? null,
+  };
+}
+
+export async function apiRetuneRecipe(recipeId: string): Promise<RetunedRecipeResponse> {
+  const data = await jsonReq(`/api/recipes/${encodeURIComponent(recipeId)}/retune`, "POST", {});
+  return data as RetunedRecipeResponse;
 }
 
 // Bridge jobs
@@ -115,6 +166,21 @@ export async function apiGetBridgeJob(recipeId: string): Promise<BridgeJob | nul
 export async function apiGetUsers(): Promise<AdminUser[]> {
   const data = await req("/api/admin/users");
   return (data as { users: AdminUser[] }).users;
+}
+
+export async function apiGetAdminUserRecipes(userId: string): Promise<AdminUserRecipeListResponse> {
+  return (await req(
+    `/api/admin/users/${encodeURIComponent(userId)}/recipes`,
+  )) as AdminUserRecipeListResponse;
+}
+
+export async function apiGetAdminUserRecipe(
+  userId: string,
+  recipeId: string,
+): Promise<AdminUserRecipeResponse> {
+  return (await req(
+    `/api/admin/users/${encodeURIComponent(userId)}/recipes/${encodeURIComponent(recipeId)}`,
+  )) as AdminUserRecipeResponse;
 }
 
 export async function apiCreateUser(

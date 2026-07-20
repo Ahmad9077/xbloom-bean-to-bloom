@@ -51,34 +51,35 @@ describe("App — authenticated user", () => {
     mockApiMe.mockResolvedValue({ id: "1", username: "tester", role: "user" });
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByRole("radiogroup", { name: /brew mode/i })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: /cold/i })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: /strong/i })).toBeInTheDocument();
     });
   });
 
-  it("shows nav with New Recipe and History links", async () => {
+  it("shows nav with New Recipe and History controls", async () => {
     mockApiMe.mockResolvedValue({ id: "1", username: "tester", role: "user" });
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByRole("link", { name: /new recipe/i })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /history/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /new recipe/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /history/i })).toBeInTheDocument();
     });
   });
 
-  it("does not show Admin Dashboard link for non-admin", async () => {
+  it("does not show Admin Dashboard control for non-admin", async () => {
     mockApiMe.mockResolvedValue({ id: "1", username: "tester", role: "user" });
     render(<App />);
     await waitFor(() => {
-      expect(screen.queryByRole("link", { name: /admin dashboard/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /admin dashboard/i })).not.toBeInTheDocument();
     });
   });
 });
 
 describe("App — authenticated admin", () => {
-  it("shows Admin Dashboard link for admin", async () => {
+  it("shows Admin Dashboard control for admin", async () => {
     mockApiMe.mockResolvedValue({ id: "1", username: "admin", role: "admin" });
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByRole("link", { name: /admin dashboard/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /admin dashboard/i })).toBeInTheDocument();
     });
   });
 });

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
 import { ApiError, apiCreateUser, apiDeleteUser, apiGetUsers, apiUpdateUser } from "../api.js";
+import StudioIcon from "../components/StudioIcon.js";
 import { useAuth } from "../context/AuthContext.js";
 import type { AdminUser } from "../types.js";
 
@@ -16,6 +17,76 @@ function formatDate(timestamp: number): string {
   }
 }
 
+function useModalDialog(isOpen: boolean, onClose: () => void) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    const returnFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    if (typeof dialog.showModal === "function") {
+      dialog.showModal();
+    } else {
+      dialog.setAttribute("open", "");
+    }
+
+    const focusable = dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    focusable[0]?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+
+    function handleCancel(event: Event) {
+      event.preventDefault();
+      onCloseRef.current();
+    }
+
+    document.addEventListener("keydown", handleKeyDown);
+    dialog.addEventListener("cancel", handleCancel);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      dialog.removeEventListener("cancel", handleCancel);
+      if (dialog.open && typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
+      document.body.style.overflow = previousOverflow;
+      if (returnFocus?.isConnected) returnFocus.focus();
+    };
+  }, [isOpen]);
+
+  return dialogRef;
+}
+
 export default function AdminPage() {
   const { user } = useAuth();
 
@@ -27,6 +98,7 @@ export default function AdminPage() {
 }
 
 function AdminDashboard({ currentUserId }: { currentUserId: string }) {
+  const navigate = useNavigate();
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -36,24 +108,29 @@ function AdminDashboard({ currentUserId }: { currentUserId: string }) {
   const [resetPassword, setResetPassword] = useState("");
   const [resetError, setResetError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const deleteDialogRef = useModalDialog(deleteTarget !== null, () => setDeleteTarget(null));
+  const resetDialogRef = useModalDialog(resetTarget !== null, () => {
+    setResetTarget(null);
+    setResetPassword("");
+    setResetError(null);
+  });
 
   const reload = useCallback(async () => {
     try {
-      const us = await apiGetUsers();
-      setUsers(us);
+      setLoadError(null);
+      setUsers(await apiGetUsers());
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Failed to load users.");
     }
   }, []);
 
   useEffect(() => {
-    reload();
+    void reload();
   }, [reload]);
 
-  function showSuccess(msg: string) {
-    setActionSuccess(msg);
+  function showSuccess(message: string) {
+    setActionSuccess(message);
     setActionError(null);
-    setTimeout(() => setActionSuccess(null), 3000);
   }
 
   function showError(err: unknown) {
@@ -61,20 +138,26 @@ function AdminDashboard({ currentUserId }: { currentUserId: string }) {
     setActionSuccess(null);
   }
 
-  async function handleToggleEnabled(u: AdminUser) {
+  function openPasswordDialog(target: AdminUser) {
+    setResetTarget(target);
+    setResetPassword("");
+    setResetError(null);
+  }
+
+  async function handleToggleEnabled(target: AdminUser) {
     try {
-      await apiUpdateUser(u.id, { enabled: !u.enabled });
-      showSuccess(`${u.username} ${u.enabled ? "disabled" : "enabled"}.`);
+      await apiUpdateUser(target.id, { enabled: !target.enabled });
+      showSuccess(`${target.username} ${target.enabled ? "disabled" : "enabled"}.`);
       await reload();
     } catch (err) {
       showError(err);
     }
   }
 
-  async function handleRoleChange(u: AdminUser, role: "admin" | "user") {
+  async function handleRoleChange(target: AdminUser, role: "admin" | "user") {
     try {
-      await apiUpdateUser(u.id, { role });
-      showSuccess(`${u.username} role changed to ${role}.`);
+      await apiUpdateUser(target.id, { role });
+      showSuccess(`${target.username} role changed to ${role}.`);
       await reload();
     } catch (err) {
       showError(err);
@@ -115,19 +198,20 @@ function AdminDashboard({ currentUserId }: { currentUserId: string }) {
     }
   }
 
-  const isProtected = (u: AdminUser) => u.isPrimary || u.id === currentUserId;
+  const isProtected = (target: AdminUser) => target.isPrimary || target.id === currentUserId;
 
   if (loadError) {
     return (
-      <main className="min-h-screen bg-ivory px-4 py-8">
-        <div className="max-w-4xl mx-auto">
-          <h1 className="font-heading text-3xl text-espresso mb-6">Admin Dashboard</h1>
-          <div
-            role="alert"
-            className="bg-red-50 border border-red-200 rounded-card p-4 text-sm text-red-700"
-          >
-            {loadError}
+      <main className="collection-page admin-page">
+        <header className="page-heading">
+          <div>
+            <p className="section-kicker">Account control</p>
+            <h1>Admin Dashboard</h1>
+            <p>Manage access and review recipe activity.</p>
           </div>
+        </header>
+        <div role="alert" className="content-section bg-red-50 border-red-200 text-red-700">
+          {loadError}
         </div>
       </main>
     );
@@ -135,7 +219,7 @@ function AdminDashboard({ currentUserId }: { currentUserId: string }) {
 
   if (users === null) {
     return (
-      <main className="min-h-screen bg-ivory flex items-center justify-center">
+      <main className="collection-page flex items-center justify-center">
         <div
           className="w-10 h-10 rounded-full border-4 border-sage border-t-terracotta animate-spin"
           role="status"
@@ -145,280 +229,307 @@ function AdminDashboard({ currentUserId }: { currentUserId: string }) {
     );
   }
 
+  const currentUser = users.find((item) => item.id === currentUserId);
+  const activeUsers = users.filter((item) => item.enabled).length;
+  const totalRecipes = users.reduce((total, item) => total + item.recipeCount, 0);
+
   return (
-    <main className="min-h-screen bg-ivory px-4 py-8">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <h1 className="font-heading text-3xl text-espresso">Admin Dashboard</h1>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                const me = users.find((u) => u.id === currentUserId);
-                if (me) setResetTarget(me);
-                setResetPassword("");
-                setResetError(null);
-              }}
-              className="font-body text-xs font-semibold uppercase tracking-widest px-4 min-h-touch
-                         border border-espresso text-espresso rounded-card hover:bg-espresso/5
-                         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-            >
-              Change my password
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowCreate((v) => !v)}
-              className="font-body text-xs font-semibold uppercase tracking-widest px-4 min-h-touch
-                       bg-espresso text-ivory rounded-card hover:opacity-90 transition-opacity
-                       focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
-            >
-              {showCreate ? "Cancel" : "Create User"}
-            </button>
-          </div>
+    <main className="collection-page admin-page">
+      <header className="page-heading admin-heading">
+        <div>
+          <p className="section-kicker">Account control</p>
+          <h1>Admin Dashboard</h1>
+          <p>Manage access and review recipe activity.</p>
         </div>
-
-        {actionSuccess && (
-          <output
-            aria-live="polite"
-            className="block bg-green-50 border border-green-200 rounded-card p-3 text-sm text-green-800"
+        <div className="admin-heading-actions">
+          <button
+            type="button"
+            className="secondary-action"
+            disabled={!currentUser}
+            onClick={() => currentUser && openPasswordDialog(currentUser)}
           >
-            {actionSuccess}
-          </output>
-        )}
-        {actionError && (
-          <div
-            role="alert"
-            className="bg-red-50 border border-red-200 rounded-card p-3 text-sm text-red-700"
+            Change my password
+          </button>
+          <button
+            type="button"
+            className="primary-small"
+            onClick={() => setShowCreate((value) => !value)}
           >
-            {actionError}
-          </div>
-        )}
+            {showCreate ? "Cancel" : "Create User"}
+          </button>
+        </div>
+      </header>
 
-        {showCreate && (
-          <CreateUserForm
-            onCreated={async () => {
-              showSuccess("User created.");
-              setShowCreate(false);
-              await reload();
-            }}
-            onError={showError}
-          />
-        )}
+      {actionSuccess ? (
+        <output className="demo-notice" aria-live="polite">
+          {actionSuccess}
+          <button type="button" aria-label="Dismiss message" onClick={() => setActionSuccess(null)}>
+            ×
+          </button>
+        </output>
+      ) : null}
 
-        <section aria-label="Users">
-          <div className="overflow-x-auto">
-            <table className="w-full bg-white rounded-card border border-espresso/5 text-sm font-body">
-              <thead>
-                <tr className="border-b border-espresso/10 text-left">
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-widest text-sage">
-                    Username
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-widest text-sage">
-                    Created
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-widest text-sage">
-                    Recipes
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-widest text-sage">
-                    Role
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-widest text-sage">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold uppercase tracking-widest text-sage">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => {
-                  const protected_ = isProtected(u);
-                  return (
-                    <tr key={u.id} className="border-b border-espresso/5 last:border-0">
-                      <td className="px-4 py-3 text-espresso font-semibold">
-                        {u.username}
-                        {u.isPrimary && (
-                          <span className="ml-2 text-xs text-sage font-normal">
-                            (primary admin)
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-espresso/60">{formatDate(u.createdAt)}</td>
-                      <td className="px-4 py-3 text-espresso/60">{u.recipeCount}</td>
-                      <td className="px-4 py-3">
-                        {protected_ ? (
-                          <span className="text-espresso/60 capitalize">{u.role}</span>
-                        ) : (
-                          <select
-                            value={u.role}
-                            onChange={(e) =>
-                              handleRoleChange(u, e.target.value as "admin" | "user")
-                            }
-                            aria-label={`Role for ${u.username}`}
-                            className="text-sm border border-espresso/20 rounded px-2 py-1
-                                       text-espresso bg-white focus:outline-none focus:ring-2
-                                       focus:ring-terracotta"
-                          >
-                            <option value="user">user</option>
-                            <option value="admin">admin</option>
-                          </select>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {protected_ ? (
-                          <span className="text-espresso/60">
-                            {u.enabled ? "Enabled" : "Disabled"}
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleToggleEnabled(u)}
-                            aria-label={`${u.enabled ? "Disable" : "Enable"} ${u.username}`}
-                            className={`text-xs font-semibold px-3 py-1 rounded-full
-                                        focus-visible:outline-2 focus-visible:outline-offset-2
-                                        focus-visible:outline-terracotta
-                                        ${
-                                          u.enabled
-                                            ? "bg-green-100 text-green-800 hover:bg-green-200"
-                                            : "bg-red-100 text-red-800 hover:bg-red-200"
-                                        }`}
-                          >
-                            {u.enabled ? "Enabled" : "Disabled"}
-                          </button>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setResetTarget(u);
-                              setResetPassword("");
-                              setResetError(null);
-                            }}
-                            aria-label={`Reset password for ${u.username}`}
-                            className="text-xs underline text-espresso/60 hover:text-espresso
-                                       focus-visible:outline-2"
-                          >
-                            Reset Password
-                          </button>
-                          {!protected_ && (
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget(u)}
-                              aria-label={`Delete ${u.username}`}
-                              className="text-xs underline text-red-600 hover:text-red-800
-                                         focus-visible:outline-2"
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
+      {actionError ? (
+        <div role="alert" className="demo-notice text-red-700 border-red-200 bg-red-50">
+          {actionError}
+          <button type="button" aria-label="Dismiss error" onClick={() => setActionError(null)}>
+            ×
+          </button>
+        </div>
+      ) : null}
 
-      {/* Delete confirmation modal */}
-      {deleteTarget && (
-        <dialog
-          open
-          aria-labelledby="delete-title"
-          className="fixed inset-0 m-0 w-full h-full bg-espresso/50 flex items-center justify-center p-4 z-50 border-0"
+      {showCreate ? (
+        <CreateUserForm
+          onCreated={async () => {
+            showSuccess("User created.");
+            setShowCreate(false);
+            await reload();
+          }}
+          onError={showError}
+        />
+      ) : null}
+
+      <section className="admin-summary" aria-label="Account summary">
+        <div>
+          <small>Total users</small>
+          <strong>{users.length}</strong>
+        </div>
+        <div>
+          <small>Active</small>
+          <strong>{activeUsers}</strong>
+        </div>
+        <div>
+          <small>Total recipes</small>
+          <strong>{totalRecipes}</strong>
+        </div>
+      </section>
+
+      <section className="user-card-grid" aria-label="Users">
+        {users.map((target) => {
+          const protectedAccount = isProtected(target);
+          return (
+            <article className="user-card" key={target.id}>
+              <div className="user-card-top">
+                <span className="user-avatar">
+                  <StudioIcon name="user" />
+                </span>
+                <div>
+                  <h2>{target.username}</h2>
+                  <p>{target.isPrimary ? "Primary administrator" : "Bean to Bloom user"}</p>
+                </div>
+                <span className={`status-pill ${target.enabled ? "enabled" : "disabled"}`}>
+                  {target.enabled ? "Enabled" : "Disabled"}
+                </span>
+              </div>
+
+              <dl>
+                <div>
+                  <dt>Created</dt>
+                  <dd>{formatDate(target.createdAt)}</dd>
+                </div>
+                <div>
+                  <dt>Recipes</dt>
+                  <dd>
+                    <button
+                      type="button"
+                      aria-label={`View ${target.recipeCount} recipes for ${target.username}`}
+                      onClick={() =>
+                        navigate(`/admin/users/${encodeURIComponent(target.id)}/recipes`)
+                      }
+                    >
+                      {target.recipeCount}
+                    </button>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Role</dt>
+                  <dd>
+                    {protectedAccount ? (
+                      target.role
+                    ) : (
+                      <select
+                        value={target.role}
+                        onChange={(event) =>
+                          void handleRoleChange(target, event.target.value as "admin" | "user")
+                        }
+                        aria-label={`Role for ${target.username}`}
+                        className="max-w-full rounded-lg border border-espresso/20 bg-transparent px-1 py-0.5"
+                      >
+                        <option value="user">user</option>
+                        <option value="admin">admin</option>
+                      </select>
+                    )}
+                  </dd>
+                </div>
+              </dl>
+
+              <div className="user-card-actions">
+                <button type="button" onClick={() => openPasswordDialog(target)}>
+                  Password
+                </button>
+                <button
+                  type="button"
+                  disabled={protectedAccount}
+                  aria-label={`${target.enabled ? "Disable" : "Enable"} ${target.username}`}
+                  onClick={() => void handleToggleEnabled(target)}
+                >
+                  {target.enabled ? "Disable" : "Enable"}
+                </button>
+                <button
+                  type="button"
+                  disabled={protectedAccount}
+                  aria-label={`Delete ${target.username}`}
+                  onClick={() => setDeleteTarget(target)}
+                >
+                  Delete
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+
+      {deleteTarget ? (
+        <div
+          className="dialog-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDeleteTarget(null);
+          }}
         >
-          <div className="bg-ivory rounded-card p-6 max-w-sm w-full space-y-4">
-            <h2 id="delete-title" className="font-heading text-xl text-espresso">
-              Delete user?
-            </h2>
-            <p className="text-sm text-espresso/80">
-              Deleting <strong>{deleteTarget.username}</strong> will permanently delete this account
-              and all their recipe history. This cannot be undone.
-            </p>
-            <div className="flex gap-3">
+          <dialog
+            ref={deleteDialogRef}
+            className="confirmation-dialog"
+            aria-modal="true"
+            aria-labelledby="delete-title"
+            onMouseDown={(event) => {
+              if (event.target !== event.currentTarget) return;
+              const bounds = event.currentTarget.getBoundingClientRect();
+              if (
+                event.clientX < bounds.left ||
+                event.clientX > bounds.right ||
+                event.clientY < bounds.top ||
+                event.clientY > bounds.bottom
+              ) {
+                setDeleteTarget(null);
+              }
+            }}
+          >
+            <div className="dialog-handle" aria-hidden="true" />
+            <div className="dialog-heading">
+              <div>
+                <p className="section-kicker">Permanent action</p>
+                <h2 id="delete-title">Delete user?</h2>
+              </div>
               <button
                 type="button"
-                onClick={handleDelete}
-                className="flex-1 min-h-touch bg-red-600 text-white font-semibold rounded-card
-                           hover:bg-red-700 transition-colors focus-visible:outline-2"
+                className="icon-button"
+                aria-label="Close delete confirmation"
+                onClick={() => setDeleteTarget(null)}
               >
-                Delete permanently
+                <StudioIcon name="close" />
+              </button>
+            </div>
+            <div className="dialog-content">
+              <p>
+                Deleting <strong>{deleteTarget.username}</strong> will permanently delete this
+                account and all their recipe history. This cannot be undone.
+              </p>
+            </div>
+            <div className="dialog-actions">
+              <button type="button" className="primary-action" onClick={() => void handleDelete()}>
+                Delete permanently <StudioIcon name="arrow" />
               </button>
               <button
                 type="button"
+                className="secondary-action"
                 onClick={() => setDeleteTarget(null)}
-                className="flex-1 min-h-touch border border-espresso/20 text-espresso font-semibold
-                           rounded-card hover:bg-espresso/5 transition-colors focus-visible:outline-2"
               >
                 Cancel
               </button>
             </div>
-          </div>
-        </dialog>
-      )}
+          </dialog>
+        </div>
+      ) : null}
 
-      {/* Reset password modal */}
-      {resetTarget && (
-        <dialog
-          open
-          aria-labelledby="reset-title"
-          className="fixed inset-0 m-0 w-full h-full bg-espresso/50 flex items-center justify-center p-4 z-50 border-0"
-        >
-          <div className="bg-ivory rounded-card p-6 max-w-sm w-full space-y-4">
-            <h2 id="reset-title" className="font-heading text-xl text-espresso">
-              {resetTarget.id === currentUserId ? "Change my password" : "Reset password"}
-            </h2>
-            <p className="text-sm text-espresso/60">
-              New password for <strong>{resetTarget.username}</strong>
-            </p>
-            {resetTarget.id === currentUserId && (
-              <p className="text-xs text-sage">You will be signed out after changing it.</p>
-            )}
-            <input
-              type="password"
-              autoComplete="new-password"
-              placeholder="New password (min 4 chars)"
-              value={resetPassword}
-              onChange={(e) => setResetPassword(e.target.value)}
-              aria-label="New password"
-              aria-describedby={resetError ? "reset-error" : undefined}
-              className="w-full min-h-touch px-4 rounded-card border border-espresso/20 bg-white
-                         font-body text-sm text-espresso focus:outline-none focus:ring-2 focus:ring-terracotta"
-            />
-            {resetError && (
-              <p id="reset-error" role="alert" className="text-xs text-red-600">
-                {resetError}
-              </p>
-            )}
-            <div className="flex gap-3">
+      {resetTarget ? (
+        <div className="dialog-backdrop" role="presentation">
+          <dialog
+            ref={resetDialogRef}
+            className="confirmation-dialog"
+            aria-modal="true"
+            aria-labelledby="reset-title"
+          >
+            <div className="dialog-handle" aria-hidden="true" />
+            <div className="dialog-heading">
+              <div>
+                <p className="section-kicker">Account security</p>
+                <h2 id="reset-title">
+                  {resetTarget.id === currentUserId ? "Change my password" : "Reset password"}
+                </h2>
+              </div>
               <button
                 type="button"
-                onClick={handleResetPassword}
-                className="flex-1 min-h-touch bg-espresso text-ivory font-semibold rounded-card
-                           hover:opacity-90 transition-opacity focus-visible:outline-2"
-              >
-                Update password
-              </button>
-              <button
-                type="button"
+                className="icon-button"
+                aria-label="Close password dialog"
                 onClick={() => {
                   setResetTarget(null);
                   setResetPassword("");
                   setResetError(null);
                 }}
-                className="flex-1 min-h-touch border border-espresso/20 text-espresso font-semibold
-                           rounded-card hover:bg-espresso/5 transition-colors focus-visible:outline-2"
+              >
+                <StudioIcon name="close" />
+              </button>
+            </div>
+            <div className="dialog-content">
+              <div className="field-grid">
+                <label>
+                  New password for {resetTarget.username}
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="Password (min 4 characters)"
+                    value={resetPassword}
+                    onChange={(event) => setResetPassword(event.target.value)}
+                    aria-label="New password"
+                    aria-describedby={resetError ? "reset-error" : undefined}
+                  />
+                </label>
+                {resetTarget.id === currentUserId ? (
+                  <p className="text-xs text-sage">
+                    You will be signed out after changing your password.
+                  </p>
+                ) : null}
+                {resetError ? (
+                  <p id="reset-error" role="alert" className="text-xs text-red-600">
+                    {resetError}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <div className="dialog-actions">
+              <button
+                type="button"
+                className="primary-action"
+                onClick={() => void handleResetPassword()}
+              >
+                Update password <StudioIcon name="arrow" />
+              </button>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => {
+                  setResetTarget(null);
+                  setResetPassword("");
+                  setResetError(null);
+                }}
               >
                 Cancel
               </button>
             </div>
-          </div>
-        </dialog>
-      )}
+          </dialog>
+        </div>
+      ) : null}
     </main>
   );
 }
@@ -435,15 +546,16 @@ function CreateUserForm({ onCreated, onError }: CreateUserFormProps) {
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{ username?: string; password?: string }>({});
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const errs: { username?: string; password?: string } = {};
-    if (username.trim().length < 3) errs.username = "Must be at least 3 characters.";
-    if (password.length < 4) errs.password = "Must be at least 4 characters.";
-    if (Object.keys(errs).length > 0) {
-      setFieldErrors(errs);
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    const errors: { username?: string; password?: string } = {};
+    if (username.trim().length < 3) errors.username = "Must be at least 3 characters.";
+    if (password.length < 4) errors.password = "Must be at least 4 characters.";
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       return;
     }
+
     setFieldErrors({});
     setSubmitting(true);
     try {
@@ -460,89 +572,55 @@ function CreateUserForm({ onCreated, onError }: CreateUserFormProps) {
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="bg-white rounded-card p-4 space-y-4"
-      aria-label="Create new user"
-    >
-      <h2 className="font-heading text-lg text-espresso">Create User</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="space-y-1">
-          <label
-            htmlFor="new-username"
-            className="block text-xs font-semibold uppercase tracking-widest text-sage"
-          >
-            Username
-          </label>
-          <input
-            id="new-username"
-            type="text"
-            autoComplete="off"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            disabled={submitting}
-            aria-describedby={fieldErrors.username ? "new-username-error" : undefined}
-            className={`w-full min-h-touch px-3 rounded-[12px] border bg-ivory font-body text-sm
-                        text-espresso focus:outline-none focus:ring-2 focus:ring-terracotta
-                        ${fieldErrors.username ? "border-red-400" : "border-espresso/20"}`}
-          />
-          {fieldErrors.username && (
-            <p id="new-username-error" role="alert" className="text-xs text-red-600">
-              {fieldErrors.username}
-            </p>
-          )}
-        </div>
-        <div className="space-y-1">
-          <label
-            htmlFor="new-password"
-            className="block text-xs font-semibold uppercase tracking-widest text-sage"
-          >
-            Password
-          </label>
-          <input
-            id="new-password"
-            type="password"
-            autoComplete="new-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={submitting}
-            aria-describedby={fieldErrors.password ? "new-password-error" : undefined}
-            className={`w-full min-h-touch px-3 rounded-[12px] border bg-ivory font-body text-sm
-                        text-espresso focus:outline-none focus:ring-2 focus:ring-terracotta
-                        ${fieldErrors.password ? "border-red-400" : "border-espresso/20"}`}
-          />
-          {fieldErrors.password && (
-            <p id="new-password-error" role="alert" className="text-xs text-red-600">
-              {fieldErrors.password}
-            </p>
-          )}
-        </div>
-        <div className="space-y-1">
-          <label
-            htmlFor="new-role"
-            className="block text-xs font-semibold uppercase tracking-widest text-sage"
-          >
-            Role
-          </label>
-          <select
-            id="new-role"
-            value={role}
-            onChange={(e) => setRole(e.target.value as "admin" | "user")}
-            disabled={submitting}
-            className="w-full min-h-touch px-3 rounded-[12px] border border-espresso/20 bg-ivory
-                       font-body text-sm text-espresso focus:outline-none focus:ring-2 focus:ring-terracotta"
-          >
-            <option value="user">user</option>
-            <option value="admin">admin</option>
-          </select>
-        </div>
+    <form onSubmit={handleSubmit} className="create-user-card" aria-label="Create new user">
+      <div>
+        <p className="section-kicker">New account</p>
+        <h2>Create User</h2>
       </div>
-      <button
-        type="submit"
-        disabled={submitting}
-        className="min-h-touch px-6 bg-espresso text-ivory font-body font-semibold rounded-card
-                   hover:opacity-90 transition-opacity disabled:opacity-40 focus-visible:outline-2"
-      >
+      <label>
+        Username
+        <input
+          type="text"
+          autoComplete="off"
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
+          disabled={submitting}
+          aria-describedby={fieldErrors.username ? "new-username-error" : undefined}
+        />
+        {fieldErrors.username ? (
+          <span id="new-username-error" role="alert" className="text-xs text-red-600">
+            {fieldErrors.username}
+          </span>
+        ) : null}
+      </label>
+      <label>
+        Password
+        <input
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          disabled={submitting}
+          aria-describedby={fieldErrors.password ? "new-password-error" : undefined}
+        />
+        {fieldErrors.password ? (
+          <span id="new-password-error" role="alert" className="text-xs text-red-600">
+            {fieldErrors.password}
+          </span>
+        ) : null}
+      </label>
+      <label>
+        Role
+        <select
+          value={role}
+          onChange={(event) => setRole(event.target.value as "admin" | "user")}
+          disabled={submitting}
+        >
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select>
+      </label>
+      <button type="submit" disabled={submitting}>
         {submitting ? "Creating…" : "Create"}
       </button>
     </form>

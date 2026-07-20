@@ -123,7 +123,7 @@ describe("MultiPhotoUpload — multi-photo grid", () => {
   it("shows photo count", () => {
     const files = [makeFile("a.jpg", "image/jpeg"), makeFile("b.jpg", "image/jpeg")];
     render(<MultiPhotoUpload files={files} onChange={vi.fn()} />);
-    expect(screen.getByText(/2 of 4/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/selected photos \(2 of 4\)/i)).toBeInTheDocument();
   });
 
   it("calls onChange with file removed when remove button clicked", async () => {

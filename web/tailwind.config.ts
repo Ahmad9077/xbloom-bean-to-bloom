@@ -7,7 +7,7 @@ export default {
       colors: {
         ivory: "#fef8f6",
         espresso: "#2d241e",
-        sage: "#8da399",
+        sage: "#566f60",
         terracotta: "#d17a5d",
       },
       fontFamily: {

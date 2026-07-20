@@ -79,11 +79,11 @@ describe("HistoryPage — empty state", () => {
     });
   });
 
-  it("shows link to create a recipe", async () => {
+  it("shows control to create a recipe", async () => {
     mockGetRecipes.mockResolvedValue([]);
     renderPage();
     await waitFor(() => {
-      expect(screen.getByRole("link", { name: /create your first recipe/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /create your first recipe/i })).toBeInTheDocument();
     });
   });
 });
@@ -98,11 +98,11 @@ describe("HistoryPage — recipe list", () => {
     });
   });
 
-  it("shows Open recipe buttons", async () => {
+  it("shows Open recipe controls", async () => {
     mockGetRecipes.mockResolvedValue(RECIPES);
     renderPage();
     await waitFor(() => {
-      expect(screen.getAllByRole("link", { name: /open recipe/i })).toHaveLength(2);
+      expect(screen.getAllByRole("button", { name: /open recipe/i })).toHaveLength(2);
     });
   });
 

@@ -1,13 +1,15 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthContext } from "../context/AuthContext.js";
 import NewRecipePage from "../pages/NewRecipePage.js";
+import type { PendingRecipeConfirmation } from "../types.js";
 
 vi.mock("../api.js", () => ({
   apiCreateRecipe: vi.fn(),
-  compressImage: vi.fn((f: File) => Promise.resolve(f)),
+  apiConfirmRecipe: vi.fn(),
+  compressImage: vi.fn((file: File) => Promise.resolve(file)),
   ApiError: class ApiError extends Error {
     code: string;
     status: number;
@@ -19,11 +21,12 @@ vi.mock("../api.js", () => ({
   },
 }));
 
-import { ApiError, apiCreateRecipe, compressImage } from "../api.js";
+import { ApiError, apiConfirmRecipe, apiCreateRecipe, compressImage } from "../api.js";
+
 const mockApiCreateRecipe = vi.mocked(apiCreateRecipe);
+const mockApiConfirmRecipe = vi.mocked(apiConfirmRecipe);
 const mockCompress = vi.mocked(compressImage);
 
-// jsdom stubs
 if (!globalThis.URL.createObjectURL) {
   Object.defineProperty(URL, "createObjectURL", { value: vi.fn(() => "blob:fake") });
 }
@@ -35,9 +38,41 @@ function makeJpeg(name = "bag.jpg"): File {
   return new File(["x".repeat(100)], name, { type: "image/jpeg" });
 }
 
-const mockUser = { id: "1", username: "tester", role: "user" as const };
+const PENDING_CONFIRMATION: PendingRecipeConfirmation = {
+  ok: true,
+  requestId: "request-1",
+  needsConfirmation: true,
+  confirmationId: "11111111-1111-4111-8111-111111111111",
+  brewMode: "cold",
+  strength: "strong",
+  bean: {
+    storeName: "Umq",
+    beanName: "Yemen Haraz",
+    coffeeType: "Arabica",
+    variety: "Yemenia",
+    origin: "",
+    processingMethod: "unknown",
+    roastLevel: "unknown",
+    flavors: [],
+    description: "",
+  },
+  missingFields: ["origin", "processingMethod", "roastLevel", "description"],
+  suggestedProfile: "bright_funky",
+  classifierConfidence: 0.82,
+  profileOptions: [
+    {
+      id: "bright_funky",
+      labelEn: "Funky natural",
+      labelAr: "طبيعي / تخميري",
+      emoji: "🍓",
+    },
+  ],
+  analysisFallback: false,
+  expiresAt: Date.now() + 10 * 60 * 1000,
+};
+
 const mockAuthValue = {
-  user: mockUser,
+  user: { id: "1", username: "tester", role: "user" as const },
   loading: false,
   login: vi.fn(),
   logout: vi.fn(),
@@ -56,186 +91,326 @@ function renderPage() {
   );
 }
 
+async function uploadPhotoAndSubmit() {
+  await userEvent.upload(screen.getByLabelText(/album input/i), makeJpeg());
+  await userEvent.click(screen.getByRole("button", { name: /create my recipe/i }));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mockCompress.mockImplementation((f: File) => Promise.resolve(f));
+  sessionStorage.clear();
+  mockCompress.mockImplementation((file: File) => Promise.resolve(file));
 });
 
-describe("NewRecipePage — brew mode", () => {
-  it("Cold is selected by default", () => {
+describe("NewRecipePage — approved visual structure", () => {
+  it("renders the approved hero, workflow, and V60 copy", () => {
+    renderPage();
+    expect(screen.getByRole("heading", { level: 1, name: "Bean to Bloom" })).toBeInTheDocument();
+    expect(screen.getByText(/turn a bag photo or roaster link/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/recipe creation steps/i)).toHaveTextContent("Choose your cup");
+    expect(screen.getAllByText("V60").length).toBeGreaterThan(0);
+  });
+
+  it("starts Cold and Strong on the left and lets the user change both", async () => {
     renderPage();
     expect(screen.getByRole("radio", { name: "Cold" })).toBeChecked();
-    expect(screen.getByRole("radio", { name: "Hot" })).not.toBeChecked();
-  });
-
-  it("shows brew mode selector heading", () => {
-    renderPage();
-    expect(screen.getByText(/how do you want your coffee/i)).toBeInTheDocument();
-  });
-
-  it("user can switch to Hot", async () => {
-    renderPage();
-    await userEvent.click(screen.getByRole("radio", { name: "Hot" }));
-    expect(screen.getByRole("radio", { name: "Hot" })).toBeChecked();
-  });
-});
-
-describe("NewRecipePage — brew strength", () => {
-  it("Strong is selected on the left by default", () => {
-    renderPage();
     expect(screen.getByRole("radio", { name: "Strong" })).toBeChecked();
-    expect(screen.getByRole("radio", { name: "Soft" })).not.toBeChecked();
-  });
 
-  it("user can switch to Soft", async () => {
-    renderPage();
+    await userEvent.click(screen.getByRole("radio", { name: "Hot" }));
     await userEvent.click(screen.getByRole("radio", { name: "Soft" }));
+    expect(screen.getByRole("radio", { name: "Hot" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Soft" })).toBeChecked();
   });
 });
 
-describe("NewRecipePage — photo upload", () => {
-  it("submit button is disabled when no photos", () => {
+describe("NewRecipePage — bean sources", () => {
+  it("requires a photo or product link before scanning", () => {
     renderPage();
     expect(screen.getByRole("button", { name: /create my recipe/i })).toBeDisabled();
   });
 
-  it("shows Take photo and Choose from album buttons", () => {
+  it("accepts multiple photos and shows the selected count", async () => {
     renderPage();
-    expect(screen.getByRole("button", { name: /take photo/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /choose from album/i })).toBeInTheDocument();
+    await userEvent.upload(screen.getByLabelText(/album input/i), [
+      makeJpeg("front.jpg"),
+      makeJpeg("back.jpg"),
+    ]);
+    expect(screen.getByText("2/4")).toBeInTheDocument();
+    expect(screen.getByLabelText(/selected photos \(2 of 4\)/i)).toBeInTheDocument();
   });
 
-  it("enables submit after adding a photo via album", async () => {
+  it("enables submission with a product URL and sends it without photos", async () => {
+    mockApiCreateRecipe.mockResolvedValue(PENDING_CONFIRMATION);
     renderPage();
-    const albumInput = screen.getByLabelText(/album input/i);
-    const file = makeJpeg();
-    await userEvent.upload(albumInput, file);
-    expect(screen.getByRole("button", { name: /create my recipe/i })).not.toBeDisabled();
-  });
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /product link/i }),
+      "https://roaster.example/bean",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /create my recipe/i }));
 
-  it("shows photo count after adding photos", async () => {
-    renderPage();
-    const albumInput = screen.getByLabelText(/album input/i);
-    await userEvent.upload(albumInput, [makeJpeg("a.jpg"), makeJpeg("b.jpg")]);
     await waitFor(() => {
-      expect(screen.getByText(/2 of 4/i)).toBeInTheDocument();
+      expect(mockApiCreateRecipe).toHaveBeenCalledWith(
+        [],
+        "cold",
+        "strong",
+        "https://roaster.example/bean",
+      );
     });
   });
 
-  it("shows HEIC unsupported error", async () => {
-    const user = userEvent.setup({ applyAccept: false });
+  it("uses clipboard text from Paste and silently focuses the field if clipboard fails", async () => {
+    const readText = vi
+      .fn()
+      .mockResolvedValueOnce("https://roaster.example/pasted")
+      .mockRejectedValueOnce(new Error("blocked"));
+    Object.assign(navigator, { clipboard: { readText } });
     renderPage();
-    const albumInput = screen.getByLabelText(/album input/i);
-    const heicFile = new File(["x"], "photo.heic", { type: "image/heic" });
-    await user.upload(albumInput, heicFile);
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/heic.*not supported/i);
-    });
+
+    const input = screen.getByRole("textbox", { name: /product link/i });
+    await userEvent.click(screen.getByRole("button", { name: "Paste" }));
+    expect(input).toHaveValue("https://roaster.example/pasted");
+
+    await userEvent.click(screen.getByRole("button", { name: "Paste" }));
+    expect(input).toHaveFocus();
+    expect(screen.queryByText(/clipboard/i)).not.toBeInTheDocument();
+  });
+
+  it("explains that photos take precedence when both sources are present", async () => {
+    renderPage();
+    await userEvent.upload(screen.getByLabelText(/album input/i), makeJpeg());
+    await userEvent.type(
+      screen.getByRole("textbox", { name: /product link/i }),
+      "https://roaster.example/bean",
+    );
+    expect(screen.getByText(/photos will be used for this request/i)).toBeInTheDocument();
   });
 });
 
-describe("NewRecipePage — submission", () => {
-  it("calls apiCreateRecipe with cold mode by default", async () => {
+describe("NewRecipePage — scan and confirmation contract", () => {
+  it("submits Cold/Strong and opens confirmation for the 202 response", async () => {
+    mockApiCreateRecipe.mockResolvedValue(PENDING_CONFIRMATION);
+    renderPage();
+    await uploadPhotoAndSubmit();
+
+    await waitFor(() => {
+      expect(mockApiCreateRecipe).toHaveBeenCalledWith(expect.any(Array), "cold", "strong", "");
+    });
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Confirm Below Details" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Umq")).toHaveAttribute("maxlength", "40");
+    expect(screen.getByDisplayValue("Yemen Haraz")).toHaveAttribute("maxlength", "60");
+  });
+
+  it("shows only missing metadata fields plus the always-required roast selector", async () => {
     mockApiCreateRecipe.mockResolvedValue({
+      ...PENDING_CONFIRMATION,
+      bean: {
+        ...PENDING_CONFIRMATION.bean,
+        origin: "Yemen",
+        processingMethod: "natural",
+        roastLevel: "medium_light",
+        flavors: ["red fruit"],
+        description: "Red fruit",
+      },
+      missingFields: [],
+    });
+    renderPage();
+    await uploadPhotoAndSubmit();
+    const dialog = await screen.findByRole("dialog");
+
+    expect(within(dialog).queryByLabelText("Origin")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Processing method")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText(/tasting notes/i)).not.toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Roast level")).toHaveValue("medium_light");
+    expect(within(dialog).getByText(/preliminary guess:.*funky natural/i)).toBeInTheDocument();
+    expect(within(dialog).getByText("Strong")).toBeInTheDocument();
+  });
+
+  it("requires missing data and roast, then posts only the confirmed fields", async () => {
+    mockApiCreateRecipe.mockResolvedValue(PENDING_CONFIRMATION);
+    mockApiConfirmRecipe.mockResolvedValue({
       id: "recipe-1",
       link: "/recipes/recipe-1",
       recipe: {} as never,
     });
     renderPage();
-    const albumInput = screen.getByLabelText(/album input/i);
-    await userEvent.upload(albumInput, makeJpeg());
-    await userEvent.click(screen.getByRole("button", { name: /create my recipe/i }));
-    await waitFor(() => {
-      expect(mockApiCreateRecipe).toHaveBeenCalledWith(expect.any(Array), "cold", "strong");
+    await uploadPhotoAndSubmit();
+    const dialog = await screen.findByRole("dialog");
+    const confirmButton = within(dialog).getByRole("button", {
+      name: /confirm and create recipe/i,
     });
+    expect(confirmButton).toBeDisabled();
+    expect(within(dialog).getByLabelText("Processing method")).toHaveValue("");
+
+    await userEvent.type(within(dialog).getByLabelText("Origin"), "Yemen");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Processing method"), "natural");
+    await userEvent.type(within(dialog).getByLabelText(/tasting notes/i), "Red fruit, cacao");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Roast level"), "light");
+    expect(confirmButton).toBeEnabled();
+    await userEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(mockApiConfirmRecipe).toHaveBeenCalledWith(
+        PENDING_CONFIRMATION.confirmationId,
+        "Umq",
+        "Yemen Haraz",
+        {
+          finalDrinkMl: 300,
+          roastLevel: "light",
+          origin: "Yemen",
+          processingMethod: "natural",
+          description: "Red fruit, cacao",
+        },
+      );
+    });
+    expect(screen.getByTestId("recipe-page")).toBeInTheDocument();
   });
 
-  it("calls apiCreateRecipe with hot mode when Hot selected", async () => {
+  it("uses the exact Hot Strong menu and default", async () => {
     mockApiCreateRecipe.mockResolvedValue({
-      id: "recipe-2",
-      link: "/recipes/recipe-2",
-      recipe: {} as never,
+      ...PENDING_CONFIRMATION,
+      brewMode: "hot",
+      strength: "strong",
+      bean: { ...PENDING_CONFIRMATION.bean, roastLevel: "light" },
+      missingFields: [],
     });
     renderPage();
     await userEvent.click(screen.getByRole("radio", { name: "Hot" }));
-    const albumInput = screen.getByLabelText(/album input/i);
-    await userEvent.upload(albumInput, makeJpeg());
-    await userEvent.click(screen.getByRole("button", { name: /create my recipe/i }));
-    await waitFor(() => {
-      expect(mockApiCreateRecipe).toHaveBeenCalledWith(expect.any(Array), "hot", "strong");
-    });
+    await uploadPhotoAndSubmit();
+    const dialog = await screen.findByRole("dialog");
+
+    for (const size of [210, 224, 238, 252, 266]) {
+      expect(within(dialog).getByRole("radio", { name: String(size) })).toBeInTheDocument();
+    }
+    expect(within(dialog).getByRole("radio", { name: "252" })).toBeChecked();
+    expect(within(dialog).queryByRole("radio", { name: "255" })).not.toBeInTheDocument();
   });
 
-  it("submits Soft when selected", async () => {
+  it("uses the exact Hot Soft menu and default", async () => {
     mockApiCreateRecipe.mockResolvedValue({
-      id: "recipe-soft",
-      link: "/recipes/recipe-soft",
-      recipe: {} as never,
+      ...PENDING_CONFIRMATION,
+      brewMode: "hot",
+      strength: "soft",
+      bean: { ...PENDING_CONFIRMATION.bean, roastLevel: "light" },
+      missingFields: [],
     });
     renderPage();
+    await userEvent.click(screen.getByRole("radio", { name: "Hot" }));
     await userEvent.click(screen.getByRole("radio", { name: "Soft" }));
-    const albumInput = screen.getByLabelText(/album input/i);
-    await userEvent.upload(albumInput, makeJpeg());
-    await userEvent.click(screen.getByRole("button", { name: /create my recipe/i }));
-    await waitFor(() => {
-      expect(mockApiCreateRecipe).toHaveBeenCalledWith(expect.any(Array), "cold", "soft");
-    });
+    await uploadPhotoAndSubmit();
+    const dialog = await screen.findByRole("dialog");
+
+    for (const size of [210, 225, 240, 255, 270]) {
+      expect(within(dialog).getByRole("radio", { name: String(size) })).toBeInTheDocument();
+    }
+    expect(within(dialog).getByRole("radio", { name: "255" })).toBeChecked();
   });
 
-  it("navigates to /recipes/:id after success", async () => {
+  it("returns to the form when Cancel is selected", async () => {
+    mockApiCreateRecipe.mockResolvedValue(PENDING_CONFIRMATION);
+    renderPage();
+    await uploadPhotoAndSubmit();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("marks a cached confirmation response in session storage before navigating", async () => {
     mockApiCreateRecipe.mockResolvedValue({
-      id: "abc123",
-      link: "/recipes/abc123",
+      ...PENDING_CONFIRMATION,
+      bean: { ...PENDING_CONFIRMATION.bean, roastLevel: "medium" },
+      missingFields: [],
+    });
+    mockApiConfirmRecipe.mockResolvedValue({
+      id: "cached-recipe",
+      link: "/recipes/cached-recipe",
       recipe: {} as never,
+      cached: true,
     });
     renderPage();
-    const albumInput = screen.getByLabelText(/album input/i);
-    await userEvent.upload(albumInput, makeJpeg());
-    await userEvent.click(screen.getByRole("button", { name: /create my recipe/i }));
+    await uploadPhotoAndSubmit();
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /confirm and create recipe/i }),
+    );
+
     await waitFor(() => {
+      expect(sessionStorage.getItem("xbloom:cachedRecipe")).toBe("cached-recipe");
       expect(screen.getByTestId("recipe-page")).toBeInTheDocument();
     });
   });
 
-  it("shows error message on API failure", async () => {
-    mockApiCreateRecipe.mockRejectedValue(new ApiError("Vision API error", "UPSTREAM_ERROR", 502));
-    renderPage();
-    const albumInput = screen.getByLabelText(/album input/i);
-    await userEvent.upload(albumInput, makeJpeg());
-    await userEvent.click(screen.getByRole("button", { name: /create my recipe/i }));
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/vision api error/i);
+  it("navigates after a cached response when session storage is unavailable", async () => {
+    mockApiCreateRecipe.mockResolvedValue({
+      ...PENDING_CONFIRMATION,
+      bean: { ...PENDING_CONFIRMATION.bean, roastLevel: "medium" },
+      missingFields: [],
     });
+    mockApiConfirmRecipe.mockResolvedValue({
+      id: "cached-recipe",
+      link: "/recipes/cached-recipe",
+      recipe: {} as never,
+      cached: true,
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementationOnce(() => {
+      throw new DOMException("Storage disabled", "SecurityError");
+    });
+    renderPage();
+    await uploadPhotoAndSubmit();
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /confirm and create recipe/i }),
+    );
+
+    expect(await screen.findByTestId("recipe-page")).toBeInTheDocument();
   });
 
-  it("clears photos after upload settles (success)", async () => {
+  it("keeps the dialog open and shows a safe confirmation error", async () => {
     mockApiCreateRecipe.mockResolvedValue({
-      id: "abc",
-      link: "/recipes/abc",
+      ...PENDING_CONFIRMATION,
+      bean: { ...PENDING_CONFIRMATION.bean, roastLevel: "medium" },
+      missingFields: [],
+    });
+    mockApiConfirmRecipe.mockRejectedValue(
+      new ApiError("technical detail", "RECIPE_UPSTREAM_MALFORMED", 502),
+    );
+    renderPage();
+    await uploadPhotoAndSubmit();
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /confirm and create recipe/i }),
+    );
+
+    expect(
+      await within(dialog).findByText(/recommendation service did not return a usable recipe/i),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText("technical detail")).not.toBeInTheDocument();
+  });
+});
+
+describe("NewRecipePage — request errors", () => {
+  it("shows the safe scan error and clears uploaded photos", async () => {
+    mockApiCreateRecipe.mockRejectedValue(
+      new ApiError("upstream internals", "UPSTREAM_ERROR", 502),
+    );
+    renderPage();
+    await uploadPhotoAndSubmit();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /couldn't complete the AI analysis/i,
+    );
+    expect(screen.getByText("0/4")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /create my recipe/i })).toBeDisabled();
+  });
+
+  it("still supports an immediate created response defensively", async () => {
+    mockApiCreateRecipe.mockResolvedValue({
+      id: "recipe-direct",
+      link: "/recipes/recipe-direct",
       recipe: {} as never,
     });
     renderPage();
-    const albumInput = screen.getByLabelText(/album input/i);
-    await userEvent.upload(albumInput, makeJpeg());
-    expect(screen.getByRole("button", { name: /create my recipe/i })).not.toBeDisabled();
-    await userEvent.click(screen.getByRole("button", { name: /create my recipe/i }));
-    // After navigation the page unmounts; if still on same page, photos cleared
-    await waitFor(() => {
-      expect(mockApiCreateRecipe).toHaveBeenCalledOnce();
-    });
-  });
-
-  it("clears photos after upload settles (error)", async () => {
-    mockApiCreateRecipe.mockRejectedValue(new ApiError("fail", "ERR", 500));
-    renderPage();
-    const albumInput = screen.getByLabelText(/album input/i);
-    await userEvent.upload(albumInput, makeJpeg());
-    await userEvent.click(screen.getByRole("button", { name: /create my recipe/i }));
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toBeInTheDocument();
-    });
-    // After error, submit button should be disabled again (photos cleared)
-    expect(screen.getByRole("button", { name: /create my recipe/i })).toBeDisabled();
+    await uploadPhotoAndSubmit();
+    expect(await screen.findByTestId("recipe-page")).toBeInTheDocument();
   });
 });

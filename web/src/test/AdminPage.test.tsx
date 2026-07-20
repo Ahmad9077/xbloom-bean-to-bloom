@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,6 +27,12 @@ const mockGetUsers = vi.mocked(apiGetUsers);
 const mockCreateUser = vi.mocked(apiCreateUser);
 const mockDeleteUser = vi.mocked(apiDeleteUser);
 const mockUpdateUser = vi.mocked(apiUpdateUser);
+const mockShowModal = vi.fn(function (this: HTMLDialogElement) {
+  this.setAttribute("open", "");
+});
+const mockCloseDialog = vi.fn(function (this: HTMLDialogElement) {
+  this.removeAttribute("open");
+});
 
 const ADMIN_AUTH = {
   user: { id: "1", username: "admin", role: "admin" as const },
@@ -84,6 +90,14 @@ function renderPage(auth: typeof ADMIN_AUTH | typeof USER_AUTH = ADMIN_AUTH) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+    configurable: true,
+    value: mockShowModal,
+  });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", {
+    configurable: true,
+    value: mockCloseDialog,
+  });
   mockGetUsers.mockResolvedValue(USERS);
 });
 
@@ -115,8 +129,8 @@ describe("AdminPage — user list", () => {
   it("shows recipe counts", async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("5")).toBeInTheDocument();
-      expect(screen.getByText("3")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /view 5 recipes for admin/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /view 3 recipes for alice/i })).toBeInTheDocument();
     });
   });
 
@@ -137,25 +151,22 @@ describe("AdminPage — user list", () => {
 });
 
 describe("AdminPage — primary admin protection", () => {
-  it("does not show Delete button for primary admin", async () => {
+  it("disables Delete for primary admin", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("alice")).toBeInTheDocument();
     });
-    // Primary admin row should not have a Delete button
-    // The table has rows for admin, alice, bob. Alice and bob have delete buttons.
-    const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
-    expect(deleteButtons).toHaveLength(2); // alice and bob only
+    expect(screen.getByRole("button", { name: /delete admin/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /delete alice/i })).toBeEnabled();
   });
 
-  it("does not show enable/disable toggle for primary admin (shows static text)", async () => {
+  it("disables enable/disable toggle for primary admin", async () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("alice")).toBeInTheDocument();
     });
-    // Primary admin row shows static "Enabled" text, not a button
-    const enabledButtons = screen.getAllByRole("button", { name: /enable|disable/i });
-    expect(enabledButtons).toHaveLength(2); // alice (enabled) and bob (disabled)
+    expect(screen.getByRole("button", { name: /disable admin/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /disable alice/i })).toBeEnabled();
   });
 });
 
@@ -222,6 +233,55 @@ describe("AdminPage — delete confirmation", () => {
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(mockDeleteUser).not.toHaveBeenCalled();
+  });
+
+  it("opens modally, traps focus, closes with Escape, and returns focus", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("alice");
+
+    const deleteAlice = screen.getByRole("button", { name: /delete alice/i });
+    await user.click(deleteAlice);
+
+    const dialog = await screen.findByRole("dialog", { name: /delete user/i });
+    const closeButton = within(dialog).getByRole("button", {
+      name: /close delete confirmation/i,
+    });
+    const cancelButton = within(dialog).getByRole("button", { name: /^cancel$/i });
+    expect(mockShowModal).toHaveBeenCalledOnce();
+    expect(closeButton).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(cancelButton).toHaveFocus();
+    await user.tab();
+    expect(closeButton).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mockCloseDialog).toHaveBeenCalledOnce();
+    expect(deleteAlice).toHaveFocus();
+  });
+});
+
+describe("AdminPage — password dialog", () => {
+  it("opens modally and returns focus after Escape", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const aliceHeading = await screen.findByRole("heading", { name: "alice" });
+    const aliceCard = aliceHeading.closest("article");
+    if (!aliceCard) throw new Error("Alice card missing");
+    const passwordButton = within(aliceCard).getByRole("button", { name: "Password" });
+
+    await user.click(passwordButton);
+
+    const dialog = await screen.findByRole("dialog", { name: /reset password/i });
+    expect(mockShowModal).toHaveBeenCalledOnce();
+    expect(within(dialog).getByRole("button", { name: /close password dialog/i })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mockCloseDialog).toHaveBeenCalledOnce();
+    expect(passwordButton).toHaveFocus();
   });
 });
 

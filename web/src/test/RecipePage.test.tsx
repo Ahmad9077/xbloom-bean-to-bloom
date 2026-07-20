@@ -9,6 +9,8 @@ vi.mock("../api.js", () => ({
   apiGetRecipe: vi.fn(),
   apiCreateBridgeJob: vi.fn(),
   apiGetBridgeJob: vi.fn(),
+  apiRateRecipe: vi.fn(),
+  apiRetuneRecipe: vi.fn(),
   ApiError: class ApiError extends Error {
     code: string;
     status: number;

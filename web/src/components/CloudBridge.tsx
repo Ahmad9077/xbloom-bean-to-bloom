@@ -103,84 +103,129 @@ export default function CloudBridge({ recipeId }: Props) {
 
   if (state.kind === "enqueuing") {
     return (
-      <output aria-live="polite" className="flex items-center gap-3 py-3 text-sm text-sage">
-        <span
-          className="w-5 h-5 rounded-full border-2 border-sage border-t-terracotta animate-spin flex-shrink-0"
-          aria-hidden="true"
-        />
-        Preparing your xBloom link…
-      </output>
+      <section className="delivery-card" aria-labelledby="delivery-heading">
+        <div className="delivery-icon" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <p className="section-kicker light">Send to xBloom Studio</p>
+        <output aria-live="polite">
+          <h2 id="delivery-heading">Preparing your xBloom link</h2>
+          <p>
+            <span className="delivery-progress" aria-hidden="true" />
+            Getting everything ready…
+          </p>
+        </output>
+        <small>Your recipe will be ready to open directly in xBloom.</small>
+      </section>
     );
   }
 
   if (state.kind === "pending") {
     return (
-      <output aria-live="polite">
-        <div className="flex items-center gap-3 py-2 text-sm text-sage">
-          <span
-            className="w-5 h-5 rounded-full border-2 border-sage border-t-terracotta animate-spin flex-shrink-0"
-            aria-hidden="true"
-          />
-          Creating your xBloom link…
+      <section className="delivery-card" aria-labelledby="delivery-heading">
+        <div className="delivery-icon" aria-hidden="true">
+          <span />
+          <span />
+          <span />
         </div>
-      </output>
+        <p className="section-kicker light">Send to xBloom Studio</p>
+        <output aria-live="polite">
+          <h2 id="delivery-heading">Creating your xBloom link</h2>
+          <p>
+            <span className="delivery-progress" aria-hidden="true" />
+            Your recipe is being prepared…
+          </p>
+        </output>
+        <small>This may take a few minutes.</small>
+      </section>
     );
   }
 
   if (state.kind === "claimed") {
     return (
-      <output aria-live="polite" className="flex items-center gap-3 py-3 text-sm text-sage">
-        <span
-          className="w-5 h-5 rounded-full border-2 border-sage border-t-terracotta animate-spin flex-shrink-0"
-          aria-hidden="true"
-        />
-        Creating your xBloom link… This may take a few minutes.
-      </output>
+      <section className="delivery-card" aria-labelledby="delivery-heading">
+        <div className="delivery-icon" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <p className="section-kicker light">Send to xBloom Studio</p>
+        <output aria-live="polite">
+          <h2 id="delivery-heading">Creating your xBloom link</h2>
+          <p>
+            <span className="delivery-progress" aria-hidden="true" />
+            Your recipe is being prepared…
+          </p>
+        </output>
+        <small>This may take a few minutes.</small>
+      </section>
     );
   }
 
   if (state.kind === "completed") {
     return (
-      <output
-        aria-live="polite"
-        className="block bg-green-50 border border-green-200 rounded-card p-4"
-      >
-        <p className="text-sm font-semibold text-green-800">✓ Your xBloom link is ready</p>
+      <section className="delivery-card delivery-ready" aria-labelledby="delivery-heading">
+        <div className="delivery-icon" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <p className="section-kicker light">Send to xBloom Studio</p>
+        <output aria-live="polite">
+          <h2 id="delivery-heading">Your xBloom link is ready</h2>
+          <p>Open the recipe directly in the xBloom app and add it to your account.</p>
+        </output>
         {state.shareLink && (
-          <a
-            href={state.shareLink}
-            className="mt-4 flex min-h-touch items-center justify-center rounded-card bg-espresso px-4 py-3 text-sm font-semibold text-ivory"
-          >
-            Add recipe in xBloom app
+          <a href={state.shareLink} className="delivery-action">
+            <span>Add recipe in xBloom app</span>
+            <span aria-hidden="true">→</span>
           </a>
         )}
-      </output>
+        {!state.shareLink && <small>The recipe was created, but no share link was returned.</small>}
+      </section>
     );
   }
 
   if (state.kind === "failed") {
     return (
-      <div role="alert" className="bg-red-50 border border-red-200 rounded-card p-4 space-y-1">
-        <p className="text-sm font-semibold text-red-800">Could not create the xBloom link</p>
-        <p className="text-xs text-red-600/70 mt-1">
-          Please try again. When it is ready, a button will open the recipe directly in xBloom.
-        </p>
-        <button
-          type="button"
-          onClick={retryDelivery}
-          className="mt-3 flex min-h-touch w-full items-center justify-center rounded-card bg-espresso px-4 py-3 text-sm font-semibold text-ivory"
-        >
-          Retry and create xBloom link
+      <section
+        className="delivery-card delivery-failed"
+        aria-labelledby="delivery-heading"
+        role="alert"
+      >
+        <div className="delivery-icon" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <p className="section-kicker light">Send to xBloom Studio</p>
+        <h2 id="delivery-heading">Could not create the xBloom link</h2>
+        <p>Please try again. When it is ready, a button will open the recipe directly in xBloom.</p>
+        <button type="button" onClick={retryDelivery}>
+          <span>Retry and create xBloom link</span>
+          <span aria-hidden="true">→</span>
         </button>
-      </div>
+      </section>
     );
   }
 
   // apiError
   return (
-    <div role="alert" className="bg-amber-50 border border-amber-200 rounded-card p-4 space-y-1">
-      <p className="text-sm font-semibold text-amber-800">xBloom link unavailable</p>
-      <p className="text-xs text-amber-700">{state.message}</p>
-    </div>
+    <section
+      className="delivery-card delivery-failed"
+      aria-labelledby="delivery-heading"
+      role="alert"
+    >
+      <div className="delivery-icon" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <p className="section-kicker light">Send to xBloom Studio</p>
+      <h2 id="delivery-heading">xBloom link unavailable</h2>
+      <p>{state.message}</p>
+    </section>
   );
 }

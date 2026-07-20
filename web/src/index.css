@@ -1,3 +1,108 @@
+@import "./approved-preview.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Production uses the approved preview shell without its fixed review banner. */
+.app-shell {
+  padding-top: 0;
+}
+
+.site-header {
+  top: 0;
+}
+
+/* Production-only states omitted from the static preview. */
+.form-alert,
+.dialog-error,
+.feedback-error {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  color: var(--clay-dark);
+  border: 1px solid rgba(184, 95, 67, 0.24);
+  border-radius: 14px;
+  background: rgba(184, 95, 67, 0.08);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.form-alert p {
+  color: inherit;
+}
+
+.form-status {
+  margin-top: 16px;
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--sage);
+  border-radius: 14px;
+  background: rgba(111, 135, 120, 0.09);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.form-spinner,
+.delivery-progress {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  display: inline-block;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 750ms linear infinite;
+}
+
+.cached-recipe-badge {
+  padding: 6px 10px;
+  color: var(--sage-pale);
+  border: 1px solid rgba(223, 232, 224, 0.18);
+  border-radius: 999px;
+  background: rgba(111, 135, 120, 0.2);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.bean-description {
+  margin: 16px 0 0;
+  padding-top: 16px;
+  color: var(--ink-muted);
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.delivery-progress {
+  margin-right: 7px;
+  color: var(--brass);
+  vertical-align: -2px;
+}
+
+.delivery-action {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 15px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--espresso);
+  border-radius: 15px;
+  background: var(--brass);
+  font-size: 11px;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.delivery-card.delivery-ready {
+  background: linear-gradient(145deg, rgba(111, 135, 120, 0.52), transparent 65%), var(--espresso);
+}
+
+.delivery-card.delivery-failed {
+  background: linear-gradient(145deg, rgba(184, 95, 67, 0.52), transparent 65%), var(--espresso);
+}

@@ -1,169 +1,327 @@
-import type { Recipe } from "../types.js";
+import { useState } from "react";
+import { ApiError, apiRateRecipe, apiRetuneRecipe } from "../api.js";
+import type { Recipe, RecipeComplaint, RecipeRating } from "../types.js";
 import CloudBridge from "./CloudBridge.js";
 import PourTimeline from "./PourTimeline.js";
 
 const ROAST_LABEL: Record<string, string> = {
-  light: "Light Roast",
-  medium: "Medium Roast",
-  dark: "Dark Roast",
+  light: "Light",
+  medium_light: "Medium-light",
+  medium: "Medium",
+  medium_dark: "Medium-dark",
+  dark: "Dark",
+  unknown: "Unknown",
 };
+
+const PROFILE_LABEL: Record<string, { emoji: string; label: string }> = {
+  bright_clean: { emoji: "☀️", label: "Bright & fruity" },
+  bright_funky: { emoji: "🍓", label: "Funky natural" },
+  neutral_classic: { emoji: "⚖️", label: "Classic balanced" },
+  dark_roasty: { emoji: "🍫", label: "Dark & roasty" },
+};
+
+const COMPLAINT_CHOICES: Array<{ value: RecipeComplaint; label: string }> = [
+  { value: "sour", label: "Sour" },
+  { value: "bitter", label: "Bitter" },
+  { value: "weak", label: "Weak / no taste" },
+  { value: "harsh", label: "Harsh" },
+];
 
 interface Props {
   recipe: Recipe;
   recipeId: string;
+  readOnly?: boolean;
+  backHref?: string;
+  backLabel?: string;
 }
 
-export default function RecipeResult({ recipe, recipeId }: Props) {
+export default function RecipeResult({
+  recipe,
+  recipeId,
+  readOnly = false,
+  backHref = "/",
+  backLabel = "Back for a New Recipe",
+}: Props) {
   const isIced = recipe.brewMode === "cold";
+  const [rating, setRating] = useState<RecipeRating>(recipe.rating ?? null);
+  const [complaint, setComplaint] = useState<RecipeComplaint | null>(
+    recipe.ratingComplaint ?? null,
+  );
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [retuning, setRetuning] = useState(false);
+  const [isCached] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem("xbloom:cachedRecipe") === recipeId;
+      if (cached) sessionStorage.removeItem("xbloom:cachedRecipe");
+      return cached;
+    } catch {
+      return false;
+    }
+  });
+
+  const profile = recipe.profile
+    ? (PROFILE_LABEL[recipe.profile] ?? { emoji: "☕", label: recipe.profile })
+    : null;
+
+  async function saveRating(
+    nextValue: Exclude<RecipeRating, null> | 0,
+    nextComplaint: RecipeComplaint | null = null,
+  ) {
+    setFeedbackError(null);
+    setRating(nextValue === 0 ? null : nextValue);
+    setComplaint(nextValue === -1 ? nextComplaint : null);
+
+    try {
+      const saved = await apiRateRecipe(recipeId, nextValue, nextComplaint);
+      setRating(saved.rating);
+      setComplaint(saved.complaint);
+    } catch (error) {
+      setFeedbackError(error instanceof ApiError ? error.message : "Could not save rating.");
+    }
+  }
+
+  function chooseRating(nextRating: 1 | -1) {
+    if (nextRating === 1) {
+      void saveRating(rating === 1 ? 0 : 1);
+      return;
+    }
+
+    setRating(-1);
+    setComplaint(null);
+    setFeedbackError(null);
+  }
+
+  async function retuneRecipe() {
+    if (!complaint) {
+      setFeedbackError("Choose what was wrong first.");
+      return;
+    }
+
+    setRetuning(true);
+    setFeedbackError(null);
+    try {
+      const result = await apiRetuneRecipe(recipeId);
+      if (result.cached) {
+        try {
+          sessionStorage.setItem("xbloom:cachedRecipe", result.id);
+        } catch {
+          // Session storage is a visual hint only; navigation must still succeed.
+        }
+      }
+      window.location.assign(`/recipes/${encodeURIComponent(result.id)}`);
+    } catch (error) {
+      setFeedbackError(
+        error instanceof ApiError ? error.message : "Could not re-tune this recipe.",
+      );
+      setRetuning(false);
+    }
+  }
 
   return (
-    <main className="min-h-screen bg-ivory">
-      {/* Hero header */}
-      <header className="bg-espresso text-ivory px-6 pt-8 pb-6">
-        <div className="max-w-2xl mx-auto">
-          <div className="flex items-center gap-2 mb-3">
-            <span
-              className={`text-xs font-semibold px-3 py-1 rounded-full ${
-                isIced ? "bg-sage/30 text-sage" : "bg-terracotta/30 text-terracotta"
-              }`}
-            >
-              {isIced ? "Iced Pour-Over" : "Hot Pour-Over"}
-            </span>
-            <span className="rounded-full bg-ivory/10 px-3 py-1 text-xs font-semibold text-ivory/80">
-              {recipe.strength === "strong" ? "Strong" : "Soft"}
-            </span>
-            <span className="text-xs text-ivory/50">{recipe.machine}</span>
-          </div>
-          <h1 className="font-heading text-3xl md:text-4xl mb-1">{recipe.name}</h1>
-          {recipe.bean.origin && <p className="text-ivory/70 text-sm">{recipe.bean.origin}</p>}
-        </div>
-      </header>
-
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
-        {/* Iced serving note */}
-        {isIced && recipe.icedServing && (
-          <section
-            aria-labelledby="iced-heading"
-            aria-label="Iced Serving"
-            className="bg-sage/10 border-2 border-sage/40 rounded-card p-5 text-center"
-          >
-            <h2
-              id="iced-heading"
-              className="font-body text-xs font-semibold uppercase tracking-widest text-sage mb-2"
-            >
-              Ice Required Before Brewing
-            </h2>
-            <p className="font-heading text-5xl text-espresso my-2">{recipe.icedServing.iceG} g</p>
-            <p className="text-base font-semibold text-espresso">ICE</p>
-            <p className="text-sm text-espresso/80 mt-3">
-              Put exactly <strong>{recipe.icedServing.iceG} g of ice</strong> in your serving glass
-              or carafe before starting. xBloom brews {recipe.totalVolumeMl} ml of hot coffee over
-              it, making about {recipe.icedServing.totalBeverageMl} ml total.
-            </p>
-            <p className="text-xs text-sage mt-2">
-              Ice is measured separately and is not entered in the xBloom app.
-            </p>
-          </section>
-        )}
-
-        {/* Bean details */}
-        <section aria-labelledby="bean-heading">
-          <h2
-            id="bean-heading"
-            className="font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3"
-          >
-            Bean Details
-          </h2>
-          <div className="bg-white rounded-card p-4 space-y-2">
-            {recipe.bean.coffeeType && <Detail label="Type" value={recipe.bean.coffeeType} />}
-            {recipe.bean.variety && <Detail label="Variety" value={recipe.bean.variety} />}
-            {recipe.bean.origin && <Detail label="Origin" value={recipe.bean.origin} />}
-            {recipe.bean.processingMethod && (
-              <Detail label="Process" value={recipe.bean.processingMethod} />
-            )}
-            <Detail
-              label="Roast"
-              value={ROAST_LABEL[recipe.bean.roastLevel] ?? recipe.bean.roastLevel}
-            />
-            {recipe.bean.flavors.length > 0 && (
-              <div className="flex gap-1 flex-wrap pt-1">
-                {recipe.bean.flavors.map((f) => (
-                  <span
-                    key={f}
-                    className="text-xs bg-terracotta/10 text-terracotta px-2 py-0.5 rounded-full"
-                  >
-                    {f}
-                  </span>
-                ))}
+    <main className="recipe-page">
+      <section className="recipe-hero">
+        <div className="recipe-hero-inner">
+          <div>
+            <div className="recipe-tags">
+              <span>V60</span>
+              <span>{isIced ? "Cold" : "Hot"}</span>
+              <span>{recipe.strength === "strong" ? "Strong" : "Soft"}</span>
+              <small>{recipe.machine}</small>
+              {isCached && (
+                <em className="cached-recipe-badge">Saved recipe — same bean as before</em>
+              )}
+            </div>
+            <p className="section-kicker light">Ready to brew</p>
+            <h1>{formatRecipeTitle(recipe.name)}</h1>
+            {recipe.bean.origin && <p className="recipe-origin">{recipe.bean.origin}</p>}
+            {profile && (
+              <div className="profile-line">
+                <span>{profile.emoji}</span> {profile.label}
               </div>
             )}
-            {recipe.bean.description && (
-              <p className="text-xs text-espresso/60 pt-1 italic">{recipe.bean.description}</p>
-            )}
           </div>
-        </section>
 
-        {/* Machine parameters */}
-        <section aria-labelledby="params-heading">
-          <h2
-            id="params-heading"
-            className="font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3"
-          >
-            Machine Recipe
-          </h2>
-          <div className="bg-white rounded-card p-4 grid grid-cols-2 gap-3">
-            <Detail label="Dose" value={`${recipe.doseG} g`} />
-            <Detail label="Machine water" value={`${recipe.totalVolumeMl} ml`} />
-            <Detail label="Ratio" value={recipe.brewRatio} />
-            <Detail label="Grind" value={String(recipe.grindSize)} />
-            <Detail label="RPM" value={String(recipe.rpm)} />
-            <Detail label="Dripper" value={recipe.dripper} />
-          </div>
-        </section>
-
-        {/* Pour timeline */}
-        <section aria-labelledby="pours-heading">
-          <h2
-            id="pours-heading"
-            className="font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3"
-          >
-            Pour Timeline
-          </h2>
-          <PourTimeline pours={recipe.pours} />
-        </section>
-
-        {/* Cloud bridge */}
-        <section aria-labelledby="bridge-heading">
-          <h2
-            id="bridge-heading"
-            className="font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3"
-          >
-            Send to xBloom Studio
-          </h2>
-          <CloudBridge recipeId={recipeId} />
-        </section>
-
-        <div className="pt-2 pb-8">
-          <a
-            href="/"
-            className="block w-full min-h-touch border border-espresso/30 text-espresso font-body
-                       font-semibold rounded-card py-4 transition-colors hover:bg-espresso/5
-                       focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta
-                       text-center"
-          >
-            Back for a New Recipe
-          </a>
+          {recipe.tasteRationale && (
+            <div className="rationale-card">
+              <span>Why this brew</span>
+              <p>{recipe.tasteRationale}</p>
+            </div>
+          )}
         </div>
+      </section>
+
+      <div className="recipe-layout">
+        <div className="recipe-main-column">
+          <section className="content-section recipe-passport" aria-labelledby="params-heading">
+            <div className="content-heading">
+              <p className="section-kicker">Recipe passport</p>
+              <h2 id="params-heading">Machine Recipe</h2>
+            </div>
+            <div className="metrics-grid">
+              <Metric label="Dose" value={String(recipe.doseG)} unit="g" />
+              <Metric label="Machine water" value={String(recipe.totalVolumeMl)} unit="ml" />
+              <Metric label="Ratio" value={recipe.brewRatio} />
+              <Metric label="Grind" value={String(recipe.grindSize)} />
+              <Metric label="RPM" value={String(recipe.rpm)} />
+              <Metric label="Dripper" value={recipe.dripper} />
+            </div>
+          </section>
+
+          {isIced && recipe.icedServing && (
+            <section className="ice-card" aria-labelledby="ice-heading" aria-label="Iced Serving">
+              <div className="ice-visual">
+                <span>{recipe.icedServing.iceG}</span>
+                <small>g ice</small>
+              </div>
+              <div>
+                <p className="section-kicker">Before brewing</p>
+                <h2 id="ice-heading">Ice Required Before Brewing</h2>
+                <p>
+                  Put exactly <strong>{recipe.icedServing.iceG} g of ice</strong> in your serving
+                  glass or carafe. xBloom brews {recipe.totalVolumeMl} ml over it, making about{" "}
+                  {recipe.icedServing.totalBeverageMl} ml total.
+                </p>
+                <small>Ice is measured separately and is not entered in the xBloom app.</small>
+              </div>
+            </section>
+          )}
+
+          <section className="content-section" aria-labelledby="pours-heading">
+            <div className="content-heading">
+              <p className="section-kicker">{stageLabel(recipe.pours.length)}</p>
+              <h2 id="pours-heading">Pour Timeline</h2>
+            </div>
+            <PourTimeline pours={recipe.pours} />
+          </section>
+        </div>
+
+        <aside className="recipe-side-column">
+          <BeanDetails recipe={recipe} />
+
+          {!readOnly && <CloudBridge recipeId={recipeId} />}
+
+          {!readOnly && (
+            <section className="feedback-card" aria-labelledby="feedback-heading">
+              <p className="section-kicker">Taste feedback</p>
+              <h2 id="feedback-heading">How was the cup?</h2>
+              <p>Your feedback helps calibrate future recipes.</p>
+              <div className="feedback-buttons">
+                <button type="button" aria-pressed={rating === 1} onClick={() => chooseRating(1)}>
+                  👍 <span>Good</span>
+                </button>
+                <button type="button" aria-pressed={rating === -1} onClick={() => chooseRating(-1)}>
+                  👎 <span>Needs work</span>
+                </button>
+              </div>
+
+              {rating === -1 && (
+                <div className="complaint-panel">
+                  <span>What was wrong?</span>
+                  <div>
+                    {COMPLAINT_CHOICES.map((choice) => (
+                      <button
+                        key={choice.value}
+                        type="button"
+                        aria-pressed={complaint === choice.value}
+                        onClick={() => void saveRating(-1, choice.value)}
+                      >
+                        {choice.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="retune-button"
+                    disabled={!complaint || retuning}
+                    onClick={() => void retuneRecipe()}
+                  >
+                    {retuning ? "Re-tuning…" : "Re-tune this recipe"}
+                  </button>
+                </div>
+              )}
+
+              {feedbackError && (
+                <p role="alert" className="feedback-error">
+                  {feedbackError}
+                </p>
+              )}
+            </section>
+          )}
+
+          <a className="secondary-action full-width" href={backHref}>
+            {backLabel}
+          </a>
+        </aside>
       </div>
     </main>
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, unit }: { label: string; value: string; unit?: string }) {
   return (
-    <div>
-      <dt className="text-xs text-espresso/50">{label}</dt>
-      <dd className="text-sm font-semibold text-espresso">{value}</dd>
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {unit ? <small>{unit}</small> : null}
     </div>
   );
+}
+
+function BeanDetails({ recipe }: { recipe: Recipe }) {
+  const details = [
+    { label: "Rostery/Café", value: recipe.bean.storeName },
+    { label: "Bean name", value: recipe.bean.beanName },
+    { label: "Type", value: recipe.bean.coffeeType },
+    { label: "Variety", value: recipe.bean.variety },
+    { label: "Origin", value: recipe.bean.origin },
+    { label: "Process", value: recipe.bean.processingMethod },
+    {
+      label: "Roast",
+      value: ROAST_LABEL[recipe.bean.roastLevel] ?? recipe.bean.roastLevel,
+    },
+  ].filter((detail): detail is { label: string; value: string } => Boolean(detail.value));
+
+  return (
+    <section className="content-section bean-details" aria-labelledby="bean-details-heading">
+      <div className="content-heading">
+        <p className="section-kicker">From the bag</p>
+        <h2 id="bean-details-heading">Bean Details</h2>
+      </div>
+      <dl>
+        {details.map((detail) => (
+          <div key={detail.label}>
+            <dt>{detail.label}</dt>
+            <dd>{detail.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {recipe.bean.flavors.length > 0 && (
+        <div className="flavor-tags">
+          {recipe.bean.flavors.map((flavor) => (
+            <span key={flavor}>{flavor}</span>
+          ))}
+        </div>
+      )}
+      {recipe.bean.description && <p className="bean-description">{recipe.bean.description}</p>}
+    </section>
+  );
+}
+
+function formatRecipeTitle(name: string) {
+  const firstSlash = name.indexOf("/");
+  if (firstSlash < 0 || firstSlash === name.length - 1) return name;
+
+  return (
+    <>
+      {name.slice(0, firstSlash + 1)}
+      <br />
+      {name.slice(firstSlash + 1)}
+    </>
+  );
+}
+
+function stageLabel(count: number): string {
+  const words = ["Zero", "One", "Two", "Three", "Four", "Five"];
+  const countLabel = words[count] ?? String(count);
+  return `${countLabel} ${count === 1 ? "stage" : "stages"}`;
 }

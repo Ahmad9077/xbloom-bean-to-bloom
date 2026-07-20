@@ -1,137 +1,465 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ApiError, apiCreateRecipe, compressImage } from "../api.js";
-import BrewModeSelector from "../components/BrewModeSelector.js";
-import BrewStrengthSelector from "../components/BrewStrengthSelector.js";
+import { ApiError, apiConfirmRecipe, apiCreateRecipe, compressImage } from "../api.js";
+import ConfirmationDialog from "../components/ConfirmationDialog.js";
 import MultiPhotoUpload from "../components/MultiPhotoUpload.js";
-import type { BrewMode, BrewStrength } from "../types.js";
+import type {
+  BrewMode,
+  BrewStrength,
+  ConfirmationRecipeDetails,
+  PendingRecipeConfirmation,
+} from "../types.js";
 
 type Stage =
   | { kind: "upload" }
   | { kind: "compressing" }
-  | { kind: "loading"; message?: string }
+  | { kind: "loading"; message: string }
   | { kind: "error"; message: string; code?: string };
+
+function Icon({ name, size = 20 }: { name: "arrow" | "check" | "link"; size?: number }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.7,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  if (name === "check") {
+    return (
+      <svg {...common}>
+        <title>Selected</title>
+        <path d="m5 12 4 4L19 6" />
+      </svg>
+    );
+  }
+  if (name === "link") {
+    return (
+      <svg {...common}>
+        <title>Product link</title>
+        <path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" />
+        <path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <title>Continue</title>
+      <path d="M5 12h14M14 7l5 5-5 5" />
+    </svg>
+  );
+}
+
+function BrewChoice<T extends string>({
+  name,
+  label,
+  helper,
+  value,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  name: string;
+  label: string;
+  helper: string;
+  value: T;
+  selected: boolean;
+  disabled: boolean;
+  onSelect: (value: T) => void;
+}) {
+  return (
+    <label className={`choice-card ${selected ? "is-selected" : ""}`}>
+      <input
+        className="sr-only"
+        type="radio"
+        name={name}
+        value={value}
+        checked={selected}
+        disabled={disabled}
+        aria-label={label}
+        onChange={() => onSelect(value)}
+      />
+      <span className="choice-indicator" aria-hidden="true">
+        {selected ? <Icon name="check" size={15} /> : null}
+      </span>
+      <span className="choice-label">{label}</span>
+      <span className="choice-helper">{helper}</span>
+    </label>
+  );
+}
+
+function isPendingConfirmation(
+  value: Awaited<ReturnType<typeof apiCreateRecipe>>,
+): value is PendingRecipeConfirmation {
+  return "needsConfirmation" in value && value.needsConfirmation === true;
+}
+
+function startErrorMessage(error: unknown): { message: string; code?: string } {
+  if (error instanceof ApiError) {
+    if (error.code === "RECIPE_UPSTREAM_MALFORMED" || error.code === "RECIPE_UPSTREAM_ERROR") {
+      return {
+        message:
+          "We read the coffee bag, but couldn't create a usable recipe recommendation. Please try again.",
+        code: error.code,
+      };
+    }
+    if (error.code === "UPSTREAM_MALFORMED" || error.code === "UPSTREAM_ERROR") {
+      return {
+        message: "We couldn't complete the AI analysis right now. Please try again.",
+        code: error.code,
+      };
+    }
+    return { message: error.message, code: error.code };
+  }
+  return {
+    message:
+      error instanceof Error
+        ? error.message
+        : "Network error. Check your connection and try again.",
+  };
+}
+
+function confirmationErrorMessage(error: unknown): string {
+  if (
+    error instanceof ApiError &&
+    [
+      "UPSTREAM_MALFORMED",
+      "UPSTREAM_ERROR",
+      "RECIPE_UPSTREAM_MALFORMED",
+      "RECIPE_UPSTREAM_ERROR",
+    ].includes(error.code)
+  ) {
+    return "The recipe recommendation service did not return a usable recipe. Please try again.";
+  }
+  return error instanceof Error ? error.message : "Could not create the recipe. Please try again.";
+}
 
 export default function NewRecipePage() {
   const navigate = useNavigate();
+  const productLinkRef = useRef<HTMLInputElement>(null);
+  const submitButtonRef = useRef<HTMLButtonElement>(null);
+  const scanInFlightRef = useRef(false);
+  const confirmationInFlightRef = useRef(false);
   const [brewMode, setBrewMode] = useState<BrewMode>("cold");
   const [strength, setStrength] = useState<BrewStrength>("strong");
   const [files, setFiles] = useState<File[]>([]);
+  const [productLink, setProductLink] = useState("");
   const [stage, setStage] = useState<Stage>({ kind: "upload" });
+  const [confirmation, setConfirmation] = useState<PendingRecipeConfirmation | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmationError, setConfirmationError] = useState<string>();
+
+  const isLoading = stage.kind === "loading" || stage.kind === "compressing";
+  const canCreate = files.length > 0 || productLink.trim().length > 0;
 
   async function handleSubmit() {
-    if (files.length === 0) return;
-    setStage({ kind: "compressing" });
+    const normalizedProductLink = productLink.trim();
+    if (!canCreate || isLoading || scanInFlightRef.current) return;
+    scanInFlightRef.current = true;
 
-    let compressed: File[];
-    try {
-      compressed = await Promise.all(files.map(compressImage));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to process images.";
-      setStage({ kind: "error", message: msg });
-      setFiles([]);
-      return;
+    let compressed: File[] = [];
+    if (files.length > 0) {
+      setStage({ kind: "compressing" });
+      try {
+        compressed = await Promise.all(files.map(compressImage));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to process images.";
+        setStage({ kind: "error", message });
+        setFiles([]);
+        scanInFlightRef.current = false;
+        return;
+      }
     }
 
-    setStage({ kind: "loading", message: "Analysing your coffee bag…" });
+    setStage({
+      kind: "loading",
+      message: files.length > 0 ? "Analysing your coffee bag…" : "Reading the product link…",
+    });
 
     try {
-      const result = await apiCreateRecipe(compressed, brewMode, strength);
+      const result = await apiCreateRecipe(compressed, brewMode, strength, normalizedProductLink);
       setFiles([]);
+      setProductLink("");
+      if (isPendingConfirmation(result)) {
+        setConfirmation(result);
+        setConfirmationError(undefined);
+        setStage({ kind: "upload" });
+        return;
+      }
       navigate(`/recipes/${result.id}`);
-    } catch (err) {
-      const message =
-        err instanceof ApiError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : "Network error. Check your connection and try again.";
-      const code = err instanceof ApiError ? err.code : undefined;
-      setStage({ kind: "error", message, code });
+    } catch (error) {
+      const failure = startErrorMessage(error);
+      setStage({ kind: "error", ...failure });
       setFiles([]);
+    } finally {
+      scanInFlightRef.current = false;
     }
   }
 
-  const isLoading = stage.kind === "loading" || stage.kind === "compressing";
+  async function handlePaste() {
+    if (!navigator.clipboard?.readText) {
+      focusProductLink();
+      return;
+    }
+    try {
+      const value = (await navigator.clipboard.readText()).trim();
+      if (!value) {
+        focusProductLink();
+        return;
+      }
+      setProductLink(value);
+      setStage({ kind: "upload" });
+    } catch {
+      focusProductLink();
+    }
+  }
+
+  function focusProductLink() {
+    const input = productLinkRef.current;
+    if (!input) return;
+    input.focus();
+    const end = input.value.length;
+    try {
+      input.setSelectionRange(end, end);
+    } catch {
+      // Some mobile URL inputs do not support selection ranges.
+    }
+  }
+
+  async function handleConfirm(
+    storeName: string,
+    beanName: string,
+    details: ConfirmationRecipeDetails,
+  ) {
+    if (!confirmation || confirming || confirmationInFlightRef.current) return;
+    confirmationInFlightRef.current = true;
+    setConfirming(true);
+    setConfirmationError(undefined);
+    try {
+      const result = await apiConfirmRecipe(
+        confirmation.confirmationId,
+        storeName,
+        beanName,
+        details,
+      );
+      if (result.cached) {
+        try {
+          sessionStorage.setItem("xbloom:cachedRecipe", result.id);
+        } catch {
+          // Navigation must not depend on browser storage availability.
+        }
+      }
+      navigate(`/recipes/${result.id}`);
+    } catch (error) {
+      setConfirmationError(confirmationErrorMessage(error));
+      setConfirming(false);
+    } finally {
+      confirmationInFlightRef.current = false;
+    }
+  }
+
+  function handleCancelConfirmation() {
+    if (confirming) return;
+    setConfirmation(null);
+    setConfirmationError(undefined);
+  }
+
   return (
-    <main className="min-h-screen bg-ivory flex flex-col items-center px-4 py-8">
-      <header className="mb-6 text-center">
-        <h1 className="font-heading text-4xl md:text-5xl text-espresso mb-1">Bean to Bloom</h1>
-        <p className="font-body text-sage text-xs font-semibold uppercase tracking-widest">
-          For xBloom Studio
-        </p>
-      </header>
-
-      <div className="w-full max-w-md space-y-6">
-        {/* Step 1 — brew mode */}
-        <section aria-labelledby="mode-heading">
-          <h2
-            id="mode-heading"
-            className="font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3"
-          >
-            How do you want your coffee?
-          </h2>
-          <BrewModeSelector value={brewMode} onChange={setBrewMode} disabled={isLoading} />
-          <div className="mt-3">
-            <BrewStrengthSelector value={strength} onChange={setStrength} disabled={isLoading} />
+    <main className="new-recipe-page">
+      <section className="studio-hero" aria-labelledby="new-recipe-title">
+        <div className="hero-copy">
+          <p className="eyebrow">For xBloom Studio</p>
+          <h1 id="new-recipe-title">Bean to Bloom</h1>
+          <p className="hero-lede">
+            Turn a bag photo or roaster link into a ready-to-brew xBloom recipe.
+          </p>
+          <div className="process-line" aria-label="Recipe creation steps">
+            <span>
+              <b>01</b> Choose your cup
+            </span>
+            <span>
+              <b>02</b> Add the bean
+            </span>
+            <span>
+              <b>03</b> Confirm and brew
+            </span>
           </div>
-        </section>
-
-        {/* Step 2 — photos */}
-        <section aria-labelledby="upload-heading">
-          <h2
-            id="upload-heading"
-            className="font-body text-xs font-semibold uppercase tracking-widest text-sage mb-3"
-          >
-            Upload bean bag photos
-          </h2>
-          <MultiPhotoUpload files={files} onChange={setFiles} disabled={isLoading} />
-        </section>
-
-        <p className="text-xs text-sage text-center">
-          Your photos are analysed to extract bean details and are not stored.
-        </p>
-
-        {/* Error */}
-        {stage.kind === "error" && (
-          <div
-            role="alert"
-            className="bg-red-50 border border-red-200 rounded-card p-4 text-sm text-red-700"
-          >
-            <p className="font-semibold mb-1">Something went wrong</p>
-            <p>{stage.message}</p>
-            {stage.code && <p className="mt-1 text-xs text-red-500">Error code: {stage.code}</p>}
+          <div className="hero-visual" aria-hidden="true">
+            <div className="v60-cone">
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="brew-orbit orbit-one" />
+            <div className="brew-orbit orbit-two" />
+            <div className="bean bean-one" />
+            <div className="bean bean-two" />
+            <div className="hero-ticket">
+              <small>Today&apos;s setup</small>
+              <strong>{brewMode === "cold" ? "V60 over ice" : "V60 hot"}</strong>
+              <span>{strength === "strong" ? "Strong" : "Soft"} cup</span>
+            </div>
           </div>
-        )}
+        </div>
 
-        {/* Loading */}
-        {isLoading && (
-          <output aria-live="polite" className="flex flex-col items-center gap-3 py-6">
+        <div className="recipe-form-card">
+          <div className="card-heading-row">
+            <div>
+              <p className="section-kicker">Cup setup</p>
+              <h2>How do you want your coffee?</h2>
+            </div>
+            <span className="method-chip">V60</span>
+          </div>
+
+          <div className="choice-zone">
+            <fieldset>
+              <legend>Temperature</legend>
+              <div className="choice-grid">
+                <BrewChoice
+                  name="brew-mode"
+                  label="Cold"
+                  helper="V60 over ice"
+                  value="cold"
+                  selected={brewMode === "cold"}
+                  disabled={isLoading}
+                  onSelect={setBrewMode}
+                />
+                <BrewChoice
+                  name="brew-mode"
+                  label="Hot"
+                  helper="V60 hot"
+                  value="hot"
+                  selected={brewMode === "hot"}
+                  disabled={isLoading}
+                  onSelect={setBrewMode}
+                />
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Strength</legend>
+              <div className="choice-grid">
+                <BrewChoice
+                  name="brew-strength"
+                  label="Strong"
+                  helper="Fuller & bolder"
+                  value="strong"
+                  selected={strength === "strong"}
+                  disabled={isLoading}
+                  onSelect={setStrength}
+                />
+                <BrewChoice
+                  name="brew-strength"
+                  label="Soft"
+                  helper="Lighter & calmer"
+                  value="soft"
+                  selected={strength === "soft"}
+                  disabled={isLoading}
+                  onSelect={setStrength}
+                />
+              </div>
+            </fieldset>
+          </div>
+
+          <section className="bean-source-card" aria-labelledby="upload-heading">
+            <div className="source-heading">
+              <div>
+                <p className="section-kicker">Bean source</p>
+                <h3 id="upload-heading">Upload bean bag photos</h3>
+              </div>
+              <span>{files.length}/4</span>
+            </div>
+
+            <MultiPhotoUpload files={files} onChange={setFiles} disabled={isLoading} />
+
+            <div className="source-divider">
+              <span>Or paste product link</span>
+            </div>
+            <div className="link-row">
+              <span className="link-field-icon">
+                <Icon name="link" size={18} />
+              </span>
+              <label className="sr-only" htmlFor="product-link">
+                Product link
+              </label>
+              <input
+                ref={productLinkRef}
+                id="product-link"
+                aria-label="Product link"
+                type="url"
+                inputMode="url"
+                value={productLink}
+                onChange={(event) => setProductLink(event.target.value)}
+                placeholder="https://…"
+                disabled={isLoading}
+              />
+              <button type="button" onClick={handlePaste} disabled={isLoading}>
+                Paste
+              </button>
+            </div>
+            {files.length > 0 && productLink.trim() ? (
+              <p className="upload-hint">
+                Photos will be used for this request. Remove the photos if you want to use the
+                product link instead.
+              </p>
+            ) : null}
+          </section>
+
+          <div className="privacy-note">
+            <span aria-hidden="true">●</span>
+            <p>Your photos are analysed to extract bean details and are not stored.</p>
+          </div>
+
+          {stage.kind === "error" ? (
             <div
-              className="w-10 h-10 rounded-full border-4 border-sage border-t-terracotta animate-spin"
-              aria-hidden="true"
-            />
-            <p className="text-sm text-sage">
-              {stage.kind === "compressing" ? "Preparing photos…" : stage.message}
-            </p>
-          </output>
-        )}
+              role="alert"
+              className="form-alert rounded-card border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+            >
+              <p className="mb-1 font-semibold">Something went wrong</p>
+              <p>{stage.message}</p>
+              {stage.code ? (
+                <p className="mt-1 text-xs text-red-500">Error code: {stage.code}</p>
+              ) : null}
+            </div>
+          ) : null}
 
-        {/* Submit */}
-        {!isLoading && (
+          {isLoading ? (
+            <output aria-live="polite" className="form-status">
+              <span className="form-spinner" aria-hidden="true" />
+              <span>{stage.kind === "compressing" ? "Preparing photos…" : stage.message}</span>
+            </output>
+          ) : null}
+
           <button
+            ref={submitButtonRef}
             type="button"
+            className="primary-action"
+            disabled={!canCreate || isLoading}
             onClick={handleSubmit}
-            disabled={files.length === 0}
-            className="w-full min-h-touch bg-espresso text-ivory font-body font-semibold rounded-card
-                       py-4 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed
-                       hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2
-                       focus-visible:outline-terracotta"
           >
-            Create my recipe
+            <span>{isLoading ? "Creating recipe…" : "Create my recipe"}</span>
+            <Icon name="arrow" />
           </button>
-        )}
-      </div>
+          {!canCreate && !isLoading ? (
+            <p className="action-hint">Add photos or a product page link to continue</p>
+          ) : null}
+        </div>
+      </section>
+
+      {confirmation ? (
+        <ConfirmationDialog
+          key={confirmation.confirmationId}
+          confirmation={confirmation}
+          submitting={confirming}
+          error={confirmationError}
+          onConfirm={handleConfirm}
+          onCancel={handleCancelConfirmation}
+          returnFocusRef={submitButtonRef}
+        />
+      ) : null}
     </main>
   );
 }

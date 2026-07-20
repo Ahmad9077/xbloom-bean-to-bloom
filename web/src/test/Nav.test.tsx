@@ -34,14 +34,14 @@ function renderNav(auth: typeof mockUserAuth | typeof mockAdminAuth = mockUserAu
 }
 
 describe("Nav — regular user", () => {
-  it("shows New Recipe link", () => {
+  it("shows New Recipe navigation", () => {
     renderNav();
-    expect(screen.getByRole("link", { name: /new recipe/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /new recipe/i })).toBeInTheDocument();
   });
 
-  it("shows History link", () => {
+  it("shows History navigation", () => {
     renderNav();
-    expect(screen.getByRole("link", { name: /history/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /history/i })).toBeInTheDocument();
   });
 
   it("shows Logout button", () => {
@@ -49,16 +49,30 @@ describe("Nav — regular user", () => {
     expect(screen.getByRole("button", { name: /logout/i })).toBeInTheDocument();
   });
 
-  it("does NOT show Admin Dashboard link", () => {
+  it("does NOT show Admin Dashboard navigation", () => {
     renderNav();
-    expect(screen.queryByRole("link", { name: /admin dashboard/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /admin dashboard/i })).not.toBeInTheDocument();
   });
 });
 
 describe("Nav — admin user", () => {
-  it("shows Admin Dashboard link for admin", () => {
+  it("shows Admin Dashboard navigation for admin", () => {
     renderNav(mockAdminAuth);
-    expect(screen.getByRole("link", { name: /admin dashboard/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /admin dashboard/i })).toBeInTheDocument();
+  });
+});
+
+describe("Nav — mobile menu", () => {
+  it("opens an accessible dialog and closes it with Escape", async () => {
+    renderNav();
+    const opener = screen.getByRole("button", { name: /open menu/i });
+    await userEvent.click(opener);
+    expect(screen.getByRole("dialog", { name: /mobile navigation/i })).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /mobile navigation/i })).not.toBeInTheDocument();
+    });
+    expect(opener).toHaveFocus();
   });
 });
 

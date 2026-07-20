@@ -8,3 +8,5 @@ web/dist/
 web/node_modules/
 artifacts/
 backups/
+.DS_Store
+.claude/

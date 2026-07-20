@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { ApiError } from "../api.js";
+import StudioIcon from "../components/StudioIcon.js";
 import { useAuth } from "../context/AuthContext.js";
 
 function fieldError(err: ApiError, field: "username" | "password"): string | null {
@@ -25,7 +26,7 @@ export default function LoginPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-ivory flex items-center justify-center">
+      <div className="app-shell min-h-screen flex items-center justify-center">
         <div className="w-10 h-10 rounded-full border-4 border-sage border-t-terracotta animate-spin" />
       </div>
     );
@@ -96,96 +97,102 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-ivory flex flex-col items-center justify-center px-4 py-8">
-      <header className="mb-8 text-center">
-        <h1 className="font-heading text-4xl md:text-5xl text-espresso mb-1">Bean to Bloom</h1>
-        <p className="font-body text-sage text-xs font-semibold uppercase tracking-widest">
-          For xBloom Studio
-        </p>
-      </header>
-
-      <form
-        onSubmit={handleSubmit}
-        noValidate
-        className="w-full max-w-sm space-y-5"
-        aria-label="Login form"
-      >
-        {globalError && (
-          <div
-            role="alert"
-            className="bg-red-50 border border-red-200 rounded-card p-4 text-sm text-red-700"
-          >
-            {globalError}
+    <div className="app-shell">
+      <main className="new-recipe-page">
+        <section className="studio-hero" aria-labelledby="login-brand">
+          <div className="hero-copy">
+            <p className="eyebrow">For xBloom Studio</p>
+            <h1 id="login-brand">Bean to Bloom</h1>
+            <div className="hero-visual" aria-hidden="true">
+              <div className="v60-cone">
+                <span />
+                <span />
+                <span />
+              </div>
+              <div className="brew-orbit orbit-one" />
+              <div className="brew-orbit orbit-two" />
+              <div className="bean bean-one" />
+              <div className="bean bean-two" />
+              <div className="hero-ticket">
+                <small>Bean to Bloom</small>
+                <strong>V60 recipes</strong>
+                <span>For xBloom Studio</span>
+              </div>
+            </div>
           </div>
-        )}
 
-        <div className="space-y-1">
-          <label
-            htmlFor="username"
-            className="block font-body text-xs font-semibold uppercase tracking-widest text-sage"
+          <form
+            onSubmit={handleSubmit}
+            noValidate
+            className="recipe-form-card"
+            aria-label="Login form"
           >
-            Username
-          </label>
-          <input
-            id="username"
-            type="text"
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            disabled={submitting}
-            aria-describedby={usernameError ? "username-error" : undefined}
-            aria-invalid={usernameError ? "true" : undefined}
-            className={`w-full min-h-touch px-4 rounded-card border bg-white font-body text-sm
-                        text-espresso focus:outline-none focus:ring-2 focus:ring-terracotta
-                        disabled:opacity-50
-                        ${usernameError ? "border-red-400" : "border-espresso/20"}`}
-          />
-          {usernameError && (
-            <p id="username-error" role="alert" className="text-xs text-red-600">
-              {usernameError}
-            </p>
-          )}
-        </div>
+            <div className="card-heading-row">
+              <div>
+                <p className="section-kicker">Account access</p>
+                <h2>Login</h2>
+              </div>
+              <span className="method-chip">V60</span>
+            </div>
 
-        <div className="space-y-1">
-          <label
-            htmlFor="password"
-            className="block font-body text-xs font-semibold uppercase tracking-widest text-sage"
-          >
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={submitting}
-            aria-describedby={passwordError ? "password-error" : undefined}
-            aria-invalid={passwordError ? "true" : undefined}
-            className={`w-full min-h-touch px-4 rounded-card border bg-white font-body text-sm
-                        text-espresso focus:outline-none focus:ring-2 focus:ring-terracotta
-                        disabled:opacity-50
-                        ${passwordError ? "border-red-400" : "border-espresso/20"}`}
-          />
-          {passwordError && (
-            <p id="password-error" role="alert" className="text-xs text-red-600">
-              {passwordError}
-            </p>
-          )}
-        </div>
+            {globalError ? (
+              <div
+                role="alert"
+                className="content-section bg-red-50 border-red-200 text-sm text-red-700"
+              >
+                {globalError}
+              </div>
+            ) : null}
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full min-h-touch bg-espresso text-ivory font-body font-semibold rounded-card
-                     py-4 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed
-                     hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2
-                     focus-visible:outline-terracotta"
-        >
-          {submitting ? "Signing in…" : "Login"}
-        </button>
-      </form>
-    </main>
+            <div className="field-grid">
+              <label htmlFor="username">
+                Username
+                <input
+                  id="username"
+                  type="text"
+                  autoComplete="username"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  disabled={submitting}
+                  aria-describedby={usernameError ? "username-error" : undefined}
+                  aria-invalid={usernameError ? "true" : undefined}
+                  className={usernameError ? "border-red-400" : undefined}
+                />
+                {usernameError ? (
+                  <span id="username-error" role="alert" className="text-xs text-red-600">
+                    {usernameError}
+                  </span>
+                ) : null}
+              </label>
+
+              <label htmlFor="password">
+                Password
+                <input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  disabled={submitting}
+                  aria-describedby={passwordError ? "password-error" : undefined}
+                  aria-invalid={passwordError ? "true" : undefined}
+                  className={passwordError ? "border-red-400" : undefined}
+                />
+                {passwordError ? (
+                  <span id="password-error" role="alert" className="text-xs text-red-600">
+                    {passwordError}
+                  </span>
+                ) : null}
+              </label>
+            </div>
+
+            <button type="submit" disabled={submitting} className="primary-action">
+              <span>{submitting ? "Signing in…" : "Login"}</span>
+              <StudioIcon name="arrow" />
+            </button>
+          </form>
+        </section>
+      </main>
+    </div>
   );
 }

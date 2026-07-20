@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { apiGetRecipes } from "../api.js";
+import { useNavigate, useParams } from "react-router-dom";
+import { apiGetAdminUserRecipes } from "../api.js";
 import StudioIcon from "../components/StudioIcon.js";
 import type { RecipeListItem } from "../types.js";
 
@@ -24,32 +24,50 @@ function recipeMode(recipe: RecipeListItem): "Cold" | "Hot" | null {
   return match[1].toLowerCase() === "cold" ? "Cold" : "Hot";
 }
 
-export default function HistoryPage() {
+export default function AdminUserRecipesPage() {
   const navigate = useNavigate();
+  const { userId = "" } = useParams();
+  const [username, setUsername] = useState("");
   const [recipes, setRecipes] = useState<RecipeListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiGetRecipes()
-      .then(setRecipes)
+    if (!userId) {
+      setError("User not found.");
+      return;
+    }
+
+    void apiGetAdminUserRecipes(userId)
+      .then((response) => {
+        setUsername(response.user.username);
+        setRecipes(response.recipes);
+        document.title = `${response.user.username}'s Recipes — Bean to Bloom`;
+      })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load recipes.");
       });
-  }, []);
+
+    return () => {
+      document.title = "Bean to Bloom";
+    };
+  }, [userId]);
 
   if (error) {
     return (
       <main className="collection-page">
         <header className="page-heading">
           <div>
-            <p className="section-kicker">Your brews</p>
-            <h1>Recipe History</h1>
-            <p>Return to a saved recipe whenever you want to brew it again.</p>
+            <p className="section-kicker">Recipe activity</p>
+            <h1>User Recipe History</h1>
+            <p>Review recipes created by this Bean to Bloom account.</p>
           </div>
         </header>
-        <div role="alert" className="content-section bg-red-50 border-red-200 text-sm text-red-700">
+        <div role="alert" className="content-section bg-red-50 border-red-200 text-red-700">
           {error}
         </div>
+        <button type="button" className="secondary-action mt-5" onClick={() => navigate("/admin")}>
+          Back to Admin Dashboard
+        </button>
       </main>
     );
   }
@@ -60,7 +78,7 @@ export default function HistoryPage() {
         <div
           className="w-10 h-10 rounded-full border-4 border-sage border-t-terracotta animate-spin"
           role="status"
-          aria-label="Loading recipes"
+          aria-label="Loading user recipes"
         />
       </main>
     );
@@ -70,28 +88,29 @@ export default function HistoryPage() {
     <main className="collection-page">
       <header className="page-heading">
         <div>
-          <p className="section-kicker">Your brews</p>
-          <h1>Recipe History</h1>
-          <p>Return to a saved recipe whenever you want to brew it again.</p>
+          <p className="section-kicker">Recipe activity</p>
+          <h1>{username}&apos;s Recipe History</h1>
+          <p>Review recipes created by this Bean to Bloom account.</p>
         </div>
         <span className="count-badge">
           {recipes.length} {recipes.length === 1 ? "recipe" : "recipes"}
         </span>
       </header>
 
+      <button type="button" className="secondary-action mb-6" onClick={() => navigate("/admin")}>
+        Back to Admin Dashboard
+      </button>
+
       {recipes.length === 0 ? (
         <section className="content-section text-center py-16">
           <p className="text-sage font-body text-sm">No recipes yet.</p>
-          <button type="button" className="secondary-action mt-4" onClick={() => navigate("/")}>
-            Create your first recipe
-          </button>
         </section>
       ) : (
-        <ol className="history-grid" aria-label="Your recipes">
+        <ol className="history-grid" aria-label={`Recipes for ${username}`}>
           {recipes.map((recipe, index) => {
             const mode = recipeMode(recipe);
             return (
-              <li key={recipe.id} className="history-card">
+              <li className="history-card" key={recipe.id}>
                 <div className={`history-art art-${(index % 3) + 1}`} aria-hidden="true">
                   <span />
                   <span />
@@ -109,7 +128,11 @@ export default function HistoryPage() {
                   </time>
                   <button
                     type="button"
-                    onClick={() => navigate(`/recipes/${encodeURIComponent(recipe.id)}`)}
+                    onClick={() =>
+                      navigate(
+                        `/admin/users/${encodeURIComponent(userId)}/recipes/${encodeURIComponent(recipe.id)}`,
+                      )
+                    }
                   >
                     Open recipe <StudioIcon name="arrow" />
                   </button>

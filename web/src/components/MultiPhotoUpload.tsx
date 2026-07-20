@@ -52,12 +52,12 @@ function PhotoThumb({
   }, [file]);
 
   return (
-    <div className="relative rounded-[12px] overflow-hidden border border-espresso/10 aspect-square">
+    <div className="photo-placeholder">
       {previewUrl && (
         <img
           src={previewUrl}
           alt={`${index + 1}: ${file.name}`}
-          className="w-full h-full object-cover"
+          className="h-full w-full object-cover"
         />
       )}
       <button
@@ -65,12 +65,10 @@ function PhotoThumb({
         onClick={onRemove}
         disabled={disabled}
         aria-label={`Remove photo ${index + 1}`}
-        className="absolute top-1 right-1 w-6 h-6 rounded-full bg-espresso/70 text-ivory
-                   flex items-center justify-center text-xs hover:bg-espresso transition-colors
-                   focus-visible:outline-2 focus-visible:outline-ivory disabled:opacity-40"
       >
-        ✕
+        ×
       </button>
+      <small>{file.name}</small>
     </div>
   );
 }
@@ -122,10 +120,10 @@ export default function MultiPhotoUpload({ files, onChange, disabled = false }: 
   const remaining = MAX_COUNT - files.length;
 
   return (
-    <div className="space-y-4">
+    <>
       {files.length > 0 && (
         <div
-          className="grid grid-cols-2 gap-2"
+          className="photo-preview-row"
           aria-label={`Selected photos (${files.length} of ${MAX_COUNT})`}
         >
           {files.map((f, i) => (
@@ -141,32 +139,32 @@ export default function MultiPhotoUpload({ files, onChange, disabled = false }: 
       )}
 
       {canAdd && (
-        <div className="flex gap-2">
+        <div className="upload-actions">
           <button
             type="button"
             onClick={() => cameraInputRef.current?.click()}
             disabled={disabled}
             aria-label="Take photo with camera"
-            className="flex-1 min-h-touch border-2 border-dashed border-espresso/20 rounded-card
-                       flex flex-col items-center justify-center gap-1 py-3 px-2 text-center
-                       hover:border-espresso/40 hover:bg-espresso/5 transition-colors
-                       disabled:opacity-50 disabled:cursor-not-allowed
-                       focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
           >
-            <svg
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              className="text-sage"
-              aria-hidden="true"
-            >
-              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-              <circle cx="12" cy="13" r="4" />
-            </svg>
-            <span className="font-body text-xs font-semibold text-espresso">Take photo</span>
+            <span className="upload-icon sage">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <title>Camera</title>
+                <path d="M3 7h4l1.5-2h7L17 7h4v12H3z" />
+                <circle cx="12" cy="13" r="3.5" />
+              </svg>
+            </span>
+            <strong>Take photo</strong>
+            <small>Bag front or roast label</small>
           </button>
 
           <button
@@ -174,45 +172,36 @@ export default function MultiPhotoUpload({ files, onChange, disabled = false }: 
             onClick={() => albumInputRef.current?.click()}
             disabled={disabled}
             aria-label={`Choose from album (up to ${remaining} more photo${remaining !== 1 ? "s" : ""})`}
-            className="flex-1 min-h-touch border-2 border-dashed border-espresso/20 rounded-card
-                       flex flex-col items-center justify-center gap-1 py-3 px-2 text-center
-                       hover:border-espresso/40 hover:bg-espresso/5 transition-colors
-                       disabled:opacity-50 disabled:cursor-not-allowed
-                       focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terracotta"
           >
-            <svg
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              className="text-sage"
-              aria-hidden="true"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <polyline points="21 15 16 10 5 21" />
-            </svg>
-            <span className="font-body text-xs font-semibold text-espresso">Choose from album</span>
+            <span className="upload-icon clay">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <title>Photo library</title>
+                <rect x="3" y="3" width="18" height="18" rx="3" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path d="m4 17 5-5 4 4 2-2 5 5" />
+              </svg>
+            </span>
+            <strong>Choose from album</strong>
+            <small>Up to {remaining} more</small>
           </button>
         </div>
       )}
 
-      {files.length === 0 && !canAdd && null}
-
-      {files.length > 0 && (
-        <p className="text-xs text-sage text-center">
-          {files.length} of {MAX_COUNT} photos selected
-          {files.length < MAX_COUNT && " — you can add more"}
-        </p>
-      )}
-
-      {files.length === 0 && (
-        <p className="text-xs text-sage text-center">
-          Add up to {MAX_COUNT} photos of the bean bag from different angles
-        </p>
-      )}
+      <p className="upload-hint">
+        {files.length < MAX_COUNT
+          ? `Add up to ${MAX_COUNT} photos of the bean bag from different angles`
+          : `${MAX_COUNT} of ${MAX_COUNT} photos selected`}
+      </p>
 
       {/* Hidden camera input — capture=environment opens camera */}
       <input
@@ -241,10 +230,10 @@ export default function MultiPhotoUpload({ files, onChange, disabled = false }: 
       />
 
       {error && (
-        <p role="alert" className="text-xs text-red-600">
+        <p role="alert" className="upload-error">
           {error}
         </p>
       )}
-    </div>
+    </>
   );
 }
