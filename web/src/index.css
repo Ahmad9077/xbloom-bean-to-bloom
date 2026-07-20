@@ -4,13 +4,132 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+}
+
 /* Production uses the approved preview shell without its fixed review banner. */
 .app-shell {
-  padding-top: 0;
+  padding-top: var(--safe-top);
 }
 
 .site-header {
-  top: 0;
+  top: var(--safe-top);
+}
+
+/* Keep iOS Safari's status-bar strip opaque while the sticky header is active. */
+@media (max-width: 720px) {
+  .app-shell::before {
+    content: "";
+    position: fixed;
+    z-index: 69;
+    inset: 0 0 auto;
+    height: max(var(--safe-top), 64px);
+    pointer-events: none;
+    background: var(--paper);
+  }
+}
+
+/* Production hero artwork: subtle depth plus GPU-only scroll-linked movement. */
+.hero-glow {
+  position: absolute;
+  z-index: 0;
+  inset: 34px 58px 18px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(196, 154, 90, 0.18),
+    rgba(111, 135, 120, 0.08) 46%,
+    transparent 72%
+  );
+  filter: blur(16px);
+}
+
+.cup-shadow {
+  position: absolute;
+  z-index: 1;
+  left: 39%;
+  bottom: 7px;
+  width: 164px;
+  height: 25px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(36, 27, 22, 0.22), transparent 70%);
+  opacity: 0.48;
+  will-change: transform, opacity;
+}
+
+.aroma-lines {
+  position: absolute;
+  z-index: 1;
+  top: -26px;
+  left: 48%;
+  width: 112px;
+  height: 78px;
+  opacity: 0.64;
+  will-change: transform, opacity;
+}
+
+.aroma-lines span {
+  position: absolute;
+  bottom: 0;
+  width: 24px;
+  height: 62px;
+  border-left: 1.5px solid rgba(86, 111, 96, 0.5);
+  border-radius: 50%;
+}
+
+.aroma-lines span:nth-child(1) {
+  left: 12px;
+  transform: rotate(-12deg);
+}
+
+.aroma-lines span:nth-child(2) {
+  left: 44px;
+  height: 74px;
+  border-color: rgba(196, 154, 90, 0.5);
+  transform: rotate(8deg);
+}
+
+.aroma-lines span:nth-child(3) {
+  right: 8px;
+  height: 56px;
+  transform: rotate(16deg);
+}
+
+.coffee-bed {
+  position: absolute;
+  z-index: 1;
+  top: -7px;
+  left: 50%;
+  width: 143px;
+  height: 17px;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse,
+    rgba(80, 46, 30, 0.72),
+    rgba(36, 27, 22, 0.92) 68%,
+    transparent 72%
+  );
+  transform: translateX(-50%);
+  box-shadow: inset 0 2px 0 rgba(255, 250, 243, 0.18);
+}
+
+.v60-cone,
+.brew-orbit,
+.bean,
+.hero-ticket {
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v60-cone,
+  .brew-orbit,
+  .bean,
+  .hero-ticket,
+  .aroma-lines,
+  .cup-shadow {
+    will-change: auto;
+  }
 }
 
 /* Production-only states omitted from the static preview. */

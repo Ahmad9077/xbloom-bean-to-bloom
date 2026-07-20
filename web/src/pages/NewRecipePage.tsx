@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, apiConfirmRecipe, apiCreateRecipe, compressImage } from "../api.js";
 import ConfirmationDialog from "../components/ConfirmationDialog.js";
@@ -144,6 +144,15 @@ export default function NewRecipePage() {
   const submitButtonRef = useRef<HTMLButtonElement>(null);
   const scanInFlightRef = useRef(false);
   const confirmationInFlightRef = useRef(false);
+  const heroVisualRef = useRef<HTMLDivElement>(null);
+  const cupRef = useRef<HTMLDivElement>(null);
+  const orbitOneRef = useRef<HTMLDivElement>(null);
+  const orbitTwoRef = useRef<HTMLDivElement>(null);
+  const beanOneRef = useRef<HTMLDivElement>(null);
+  const beanTwoRef = useRef<HTMLDivElement>(null);
+  const ticketRef = useRef<HTMLDivElement>(null);
+  const aromaRef = useRef<HTMLDivElement>(null);
+  const shadowRef = useRef<HTMLDivElement>(null);
   const [brewMode, setBrewMode] = useState<BrewMode>("cold");
   const [strength, setStrength] = useState<BrewStrength>("strong");
   const [files, setFiles] = useState<File[]>([]);
@@ -155,6 +164,94 @@ export default function NewRecipePage() {
 
   const isLoading = stage.kind === "loading" || stage.kind === "compressing";
   const canCreate = files.length > 0 || productLink.trim().length > 0;
+
+  useEffect(() => {
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
+    let frameId: number | undefined;
+    let isVisible = true;
+
+    function resetMotion() {
+      for (const ref of [
+        cupRef,
+        orbitOneRef,
+        orbitTwoRef,
+        beanOneRef,
+        beanTwoRef,
+        ticketRef,
+        aromaRef,
+        shadowRef,
+      ]) {
+        ref.current?.style.removeProperty("transform");
+        ref.current?.style.removeProperty("opacity");
+      }
+    }
+
+    function updateMotion() {
+      frameId = undefined;
+      if (!heroVisualRef.current || reduceMotion?.matches) {
+        resetMotion();
+        return;
+      }
+
+      const distance = Math.max(480, window.innerHeight * 0.72);
+      const progress = Math.min(1, Math.max(0, window.scrollY / distance));
+      const easedProgress = progress * progress * (3 - 2 * progress);
+
+      if (cupRef.current) {
+        cupRef.current.style.transform = `translate3d(0, ${(-8 * easedProgress).toFixed(2)}px, 0) perspective(400px) rotateX(-8deg) rotateZ(${(2 - 2 * easedProgress).toFixed(2)}deg)`;
+      }
+      if (orbitOneRef.current) {
+        orbitOneRef.current.style.transform = `translate3d(${(-4 * easedProgress).toFixed(2)}px, ${(3 * easedProgress).toFixed(2)}px, 0) rotate(${(-12 - 4 * easedProgress).toFixed(2)}deg)`;
+      }
+      if (orbitTwoRef.current) {
+        orbitTwoRef.current.style.transform = `translate3d(${(4 * easedProgress).toFixed(2)}px, ${(-3 * easedProgress).toFixed(2)}px, 0) rotate(${(15 + 4 * easedProgress).toFixed(2)}deg)`;
+      }
+      if (beanOneRef.current) {
+        beanOneRef.current.style.transform = `translate3d(${(10 * easedProgress).toFixed(2)}px, ${(-8 * easedProgress).toFixed(2)}px, 0) rotate(${(28 + 8 * easedProgress).toFixed(2)}deg)`;
+      }
+      if (beanTwoRef.current) {
+        beanTwoRef.current.style.transform = `translate3d(${(-9 * easedProgress).toFixed(2)}px, ${(7 * easedProgress).toFixed(2)}px, 0) scale(0.72) rotate(${(-22 - 7 * easedProgress).toFixed(2)}deg)`;
+      }
+      if (ticketRef.current) {
+        ticketRef.current.style.transform = `translate3d(${(-5 * easedProgress).toFixed(2)}px, ${(-10 * easedProgress).toFixed(2)}px, 0) rotate(${(-2 + 2 * easedProgress).toFixed(2)}deg)`;
+      }
+      if (aromaRef.current) {
+        aromaRef.current.style.transform = `translate3d(0, ${(-6 * easedProgress).toFixed(2)}px, 0)`;
+        aromaRef.current.style.opacity = String(0.64 + 0.2 * easedProgress);
+      }
+      if (shadowRef.current) {
+        shadowRef.current.style.transform = `translate3d(0, ${(3 * easedProgress).toFixed(2)}px, 0) scaleX(${(1 - 0.06 * easedProgress).toFixed(3)})`;
+        shadowRef.current.style.opacity = String(0.48 - 0.1 * easedProgress);
+      }
+    }
+
+    function scheduleMotion() {
+      if (!isVisible || frameId !== undefined) return;
+      frameId = window.requestAnimationFrame(updateMotion);
+    }
+
+    const observer =
+      typeof IntersectionObserver === "undefined"
+        ? null
+        : new IntersectionObserver((entries) => {
+            isVisible = entries[0]?.isIntersecting ?? false;
+            if (isVisible) scheduleMotion();
+          });
+
+    updateMotion();
+    if (heroVisualRef.current) observer?.observe(heroVisualRef.current);
+    window.addEventListener("scroll", scheduleMotion, { passive: true });
+    window.addEventListener("resize", scheduleMotion);
+    reduceMotion?.addEventListener?.("change", scheduleMotion);
+
+    return () => {
+      if (frameId !== undefined) window.cancelAnimationFrame(frameId);
+      window.removeEventListener("scroll", scheduleMotion);
+      window.removeEventListener("resize", scheduleMotion);
+      reduceMotion?.removeEventListener?.("change", scheduleMotion);
+      observer?.disconnect();
+    };
+  }, []);
 
   async function handleSubmit() {
     const normalizedProductLink = productLink.trim();
@@ -288,17 +385,25 @@ export default function NewRecipePage() {
               <b>03</b> Confirm and brew
             </span>
           </div>
-          <div className="hero-visual" aria-hidden="true">
-            <div className="v60-cone">
+          <div ref={heroVisualRef} className="hero-visual" aria-hidden="true">
+            <div className="hero-glow" />
+            <div ref={shadowRef} className="cup-shadow" />
+            <div ref={aromaRef} className="aroma-lines">
               <span />
               <span />
               <span />
             </div>
-            <div className="brew-orbit orbit-one" />
-            <div className="brew-orbit orbit-two" />
-            <div className="bean bean-one" />
-            <div className="bean bean-two" />
-            <div className="hero-ticket">
+            <div ref={cupRef} className="v60-cone">
+              <span />
+              <span />
+              <span />
+              <i className="coffee-bed" />
+            </div>
+            <div ref={orbitOneRef} className="brew-orbit orbit-one" />
+            <div ref={orbitTwoRef} className="brew-orbit orbit-two" />
+            <div ref={beanOneRef} className="bean bean-one" />
+            <div ref={beanTwoRef} className="bean bean-two" />
+            <div ref={ticketRef} className="hero-ticket">
               <small>Today&apos;s setup</small>
               <strong>{brewMode === "cold" ? "V60 over ice" : "V60 hot"}</strong>
               <span>{strength === "strong" ? "Strong" : "Soft"} cup</span>

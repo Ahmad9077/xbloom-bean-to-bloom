@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -109,6 +109,8 @@ describe("NewRecipePage — approved visual structure", () => {
     expect(screen.getByText(/turn a bag photo or roaster link/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/recipe creation steps/i)).toHaveTextContent("Choose your cup");
     expect(screen.getAllByText("V60").length).toBeGreaterThan(0);
+    expect(document.querySelector(".coffee-bed")).toBeInTheDocument();
+    expect(document.querySelectorAll(".aroma-lines span")).toHaveLength(3);
   });
 
   it("starts Cold and Strong on the left and lets the user change both", async () => {
@@ -120,6 +122,55 @@ describe("NewRecipePage — approved visual structure", () => {
     await userEvent.click(screen.getByRole("radio", { name: "Soft" }));
     expect(screen.getByRole("radio", { name: "Hot" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Soft" })).toBeChecked();
+  });
+
+  it("moves the hero artwork with scroll using transform-only updates", () => {
+    const originalScrollY = window.scrollY;
+    let animationFrame: FrameRequestCallback | undefined;
+    const animationSpy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        animationFrame = callback;
+        return 1;
+      });
+
+    renderPage();
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 320 });
+    fireEvent.scroll(window);
+    animationFrame?.(0);
+
+    const cup = document.querySelector<HTMLElement>(".v60-cone");
+    const bean = document.querySelector<HTMLElement>(".bean-one");
+    expect(cup?.style.transform).toContain("translate3d");
+    expect(cup?.style.transform).toContain("rotateZ");
+    expect(bean?.style.transform).toContain("translate3d");
+
+    animationSpy.mockRestore();
+    Object.defineProperty(window, "scrollY", { configurable: true, value: originalScrollY });
+  });
+
+  it("keeps the artwork static when reduced motion is requested", () => {
+    const originalMatchMedia = window.matchMedia;
+    const originalScrollY = window.scrollY;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }),
+    });
+    Object.defineProperty(window, "scrollY", { configurable: true, value: 320 });
+
+    renderPage();
+    expect(document.querySelector<HTMLElement>(".v60-cone")?.style.transform).toBe("");
+    expect(document.querySelector<HTMLElement>(".bean-one")?.style.transform).toBe("");
+
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: originalMatchMedia,
+    });
+    Object.defineProperty(window, "scrollY", { configurable: true, value: originalScrollY });
   });
 });
 

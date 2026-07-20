@@ -106,6 +106,17 @@ describe("staged production web assets", () => {
     expect(existsSync(join(assetsDist, "assets", oldStylesheetAsset))).toBe(true);
   });
 
+  it("ships the iPhone safe-area guard and reduced-motion-aware hero movement", () => {
+    const stylesheet = readFileSync(join(assetsDist, stylesheets[0] ?? ""), "utf8");
+    const script = readFileSync(join(assetsDist, scripts[0] ?? ""), "utf8");
+
+    expect(html).toContain("viewport-fit=cover");
+    expect(stylesheet).toContain("safe-area-inset-top");
+    expect(stylesheet).toContain(".app-shell:before");
+    expect(script).toContain("prefers-reduced-motion: reduce");
+    expect(script).toContain("IntersectionObserver");
+  });
+
   it("serves the new JavaScript untouched because the legacy patch is path-scoped", async () => {
     const scriptPath = scripts[0] ?? "";
     const script = readFileSync(join(assetsDist, scriptPath), "utf8");
