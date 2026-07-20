@@ -12,7 +12,7 @@ import RecipePage from "./pages/RecipePage.js";
 
 function AppLayout() {
   return (
-    <div className="app-shell">
+    <div className="app-shell has-sticky-header">
       <Nav />
       <Outlet />
     </div>

@@ -13,20 +13,29 @@
   padding-top: var(--safe-top);
 }
 
-.site-header {
-  top: var(--safe-top);
+.has-sticky-header {
+  padding-top: 0;
 }
 
-/* Keep iOS Safari's status-bar strip opaque while the sticky header is active. */
+.site-header {
+  top: 0;
+}
+
+/*
+ * Keep iOS Safari's status strip and navigation in one sticky painted layer.
+ * A separate fixed mask can be composited behind scrolling content during
+ * Safari momentum scroll, which is why the inset belongs to the header itself.
+ */
 @media (max-width: 720px) {
-  .app-shell::before {
-    content: "";
-    position: fixed;
-    z-index: 69;
-    inset: 0 0 auto;
-    height: max(var(--safe-top), 64px);
-    pointer-events: none;
-    background: var(--paper);
+  .site-header {
+    top: 0;
+    min-height: calc(69px + var(--safe-top));
+    padding-top: calc(10px + var(--safe-top));
+    background: linear-gradient(
+      to bottom,
+      var(--paper) 0 var(--safe-top),
+      var(--espresso) var(--safe-top) 100%
+    );
   }
 }
 
@@ -119,6 +128,10 @@
 .bean,
 .hero-ticket {
   will-change: transform;
+}
+
+.v60-cone {
+  transform-origin: 50% 82%;
 }
 
 @media (prefers-reduced-motion: reduce) {

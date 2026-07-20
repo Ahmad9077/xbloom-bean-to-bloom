@@ -193,35 +193,35 @@ export default function NewRecipePage() {
         return;
       }
 
-      const distance = Math.max(480, window.innerHeight * 0.72);
+      const distance = Math.min(540, Math.max(460, window.innerHeight * 0.62));
       const progress = Math.min(1, Math.max(0, window.scrollY / distance));
       const easedProgress = progress * progress * (3 - 2 * progress);
 
       if (cupRef.current) {
-        cupRef.current.style.transform = `translate3d(0, ${(-8 * easedProgress).toFixed(2)}px, 0) perspective(400px) rotateX(-8deg) rotateZ(${(2 - 2 * easedProgress).toFixed(2)}deg)`;
+        cupRef.current.style.transform = `translate3d(${(10 * easedProgress).toFixed(2)}px, ${(-18 * easedProgress).toFixed(2)}px, 0) perspective(400px) rotateX(-8deg) rotateZ(${(2 - 12 * easedProgress).toFixed(2)}deg)`;
       }
       if (orbitOneRef.current) {
-        orbitOneRef.current.style.transform = `translate3d(${(-4 * easedProgress).toFixed(2)}px, ${(3 * easedProgress).toFixed(2)}px, 0) rotate(${(-12 - 4 * easedProgress).toFixed(2)}deg)`;
+        orbitOneRef.current.style.transform = `translate3d(${(-14 * easedProgress).toFixed(2)}px, ${(10 * easedProgress).toFixed(2)}px, 0) rotate(${(-12 - 16 * easedProgress).toFixed(2)}deg)`;
       }
       if (orbitTwoRef.current) {
-        orbitTwoRef.current.style.transform = `translate3d(${(4 * easedProgress).toFixed(2)}px, ${(-3 * easedProgress).toFixed(2)}px, 0) rotate(${(15 + 4 * easedProgress).toFixed(2)}deg)`;
+        orbitTwoRef.current.style.transform = `translate3d(${(16 * easedProgress).toFixed(2)}px, ${(-12 * easedProgress).toFixed(2)}px, 0) rotate(${(15 + 18 * easedProgress).toFixed(2)}deg)`;
       }
       if (beanOneRef.current) {
-        beanOneRef.current.style.transform = `translate3d(${(10 * easedProgress).toFixed(2)}px, ${(-8 * easedProgress).toFixed(2)}px, 0) rotate(${(28 + 8 * easedProgress).toFixed(2)}deg)`;
+        beanOneRef.current.style.transform = `translate3d(${(32 * easedProgress).toFixed(2)}px, ${(-22 * easedProgress).toFixed(2)}px, 0) rotate(${(28 + 34 * easedProgress).toFixed(2)}deg)`;
       }
       if (beanTwoRef.current) {
-        beanTwoRef.current.style.transform = `translate3d(${(-9 * easedProgress).toFixed(2)}px, ${(7 * easedProgress).toFixed(2)}px, 0) scale(0.72) rotate(${(-22 - 7 * easedProgress).toFixed(2)}deg)`;
+        beanTwoRef.current.style.transform = `translate3d(${(-28 * easedProgress).toFixed(2)}px, ${(18 * easedProgress).toFixed(2)}px, 0) scale(0.72) rotate(${(-22 - 30 * easedProgress).toFixed(2)}deg)`;
       }
       if (ticketRef.current) {
-        ticketRef.current.style.transform = `translate3d(${(-5 * easedProgress).toFixed(2)}px, ${(-10 * easedProgress).toFixed(2)}px, 0) rotate(${(-2 + 2 * easedProgress).toFixed(2)}deg)`;
+        ticketRef.current.style.transform = `translate3d(${(-18 * easedProgress).toFixed(2)}px, ${(-26 * easedProgress).toFixed(2)}px, 0) rotate(${(-2 + 6 * easedProgress).toFixed(2)}deg)`;
       }
       if (aromaRef.current) {
-        aromaRef.current.style.transform = `translate3d(0, ${(-6 * easedProgress).toFixed(2)}px, 0)`;
-        aromaRef.current.style.opacity = String(0.64 + 0.2 * easedProgress);
+        aromaRef.current.style.transform = `translate3d(0, ${(-20 * easedProgress).toFixed(2)}px, 0)`;
+        aromaRef.current.style.opacity = String(0.64 + 0.28 * easedProgress);
       }
       if (shadowRef.current) {
-        shadowRef.current.style.transform = `translate3d(0, ${(3 * easedProgress).toFixed(2)}px, 0) scaleX(${(1 - 0.06 * easedProgress).toFixed(3)})`;
-        shadowRef.current.style.opacity = String(0.48 - 0.1 * easedProgress);
+        shadowRef.current.style.transform = `translate3d(0, ${(7 * easedProgress).toFixed(2)}px, 0) scaleX(${(1 - 0.24 * easedProgress).toFixed(3)})`;
+        shadowRef.current.style.opacity = String(0.48 - 0.21 * easedProgress);
       }
     }
 

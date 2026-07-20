@@ -142,7 +142,7 @@ describe("NewRecipePage — approved visual structure", () => {
     const cup = document.querySelector<HTMLElement>(".v60-cone");
     const bean = document.querySelector<HTMLElement>(".bean-one");
     expect(cup?.style.transform).toContain("translate3d");
-    expect(cup?.style.transform).toContain("rotateZ");
+    expect(cup?.style.transform).toContain("rotateZ(-");
     expect(bean?.style.transform).toContain("translate3d");
 
     animationSpy.mockRestore();

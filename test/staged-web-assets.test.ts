@@ -112,7 +112,8 @@ describe("staged production web assets", () => {
 
     expect(html).toContain("viewport-fit=cover");
     expect(stylesheet).toContain("safe-area-inset-top");
-    expect(stylesheet).toContain(".app-shell:before");
+    expect(stylesheet).toContain(".has-sticky-header");
+    expect(stylesheet).toContain("linear-gradient(to bottom,var(--paper) 0 var(--safe-top)");
     expect(script).toContain("prefers-reduced-motion: reduce");
     expect(script).toContain("IntersectionObserver");
   });

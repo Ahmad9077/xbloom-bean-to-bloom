@@ -60,8 +60,10 @@ describe("App — authenticated user", () => {
     mockApiMe.mockResolvedValue({ id: "1", username: "tester", role: "user" });
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /new recipe/i })).toBeInTheDocument();
+      const newRecipeButton = screen.getByRole("button", { name: /new recipe/i });
+      expect(newRecipeButton).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /history/i })).toBeInTheDocument();
+      expect(newRecipeButton.closest(".app-shell")).toHaveClass("has-sticky-header");
     });
   });
 
