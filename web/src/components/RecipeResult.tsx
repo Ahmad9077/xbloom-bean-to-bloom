@@ -186,7 +186,7 @@ export default function RecipeResult({
             </section>
           )}
 
-          <section className="content-section" aria-labelledby="pours-heading">
+          <section className="content-section pour-section" aria-labelledby="pours-heading">
             <div className="content-heading">
               <p className="section-kicker">{stageLabel(recipe.pours.length)}</p>
               <h2 id="pours-heading">Pour Timeline</h2>

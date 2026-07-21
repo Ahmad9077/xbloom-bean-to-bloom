@@ -200,6 +200,9 @@ describe("RecipeResult — cold recipe", () => {
     expect(screen.getByText("Bloom")).toBeInTheDocument();
     expect(screen.getByText("Pour 2")).toBeInTheDocument();
     expect(screen.getByText("Pour 3")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Pour Timeline" }).closest("section")).toHaveClass(
+      "pour-section",
+    );
   });
 });
 

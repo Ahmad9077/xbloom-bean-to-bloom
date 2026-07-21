@@ -134,6 +134,279 @@
   transform-origin: 50% 82%;
 }
 
+/*
+ * Mobile recipe results favour scanning over oversized presentation cards.
+ * All recipe content remains visible; related values are simply grouped more
+ * tightly and static cards lose decorative depth that did not convey state.
+ */
+@media (max-width: 720px) {
+  .recipe-page {
+    padding-bottom: 96px;
+  }
+
+  .recipe-hero-inner {
+    width: calc(100% - 24px);
+    padding: 28px 0 22px;
+    gap: 18px;
+  }
+
+  .recipe-tags {
+    margin-bottom: 16px;
+    gap: 6px;
+  }
+
+  .recipe-tags span,
+  .profile-line {
+    padding: 5px 9px;
+    font-size: 9px;
+  }
+
+  .recipe-tags small {
+    font-size: 9px;
+  }
+
+  .recipe-hero .section-kicker {
+    margin-bottom: 7px;
+    font-size: 8px;
+  }
+
+  .recipe-hero h1 {
+    font-size: clamp(34px, 10vw, 39px);
+    line-height: 0.98;
+  }
+
+  .recipe-origin {
+    margin-top: 9px;
+    font-size: 12px;
+  }
+
+  .profile-line {
+    margin-top: 12px;
+  }
+
+  .rationale-card {
+    padding: 14px 0 0;
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .rationale-card > span {
+    font-size: 8px;
+  }
+
+  .rationale-card p {
+    margin: 7px 0 0;
+    font-family: var(--body);
+    font-size: 13px;
+    line-height: 1.48;
+  }
+
+  .recipe-layout {
+    width: calc(100% - 20px);
+    padding-top: 16px;
+    gap: 12px;
+  }
+
+  .recipe-main-column,
+  .recipe-side-column {
+    gap: 12px;
+  }
+
+  .content-section,
+  .feedback-card,
+  .user-card {
+    padding: 14px;
+    border-radius: 18px;
+    box-shadow: none;
+  }
+
+  .content-heading {
+    margin-bottom: 12px;
+    align-items: baseline;
+  }
+
+  .content-heading h2 {
+    font-size: 21px;
+  }
+
+  .content-heading .section-kicker {
+    margin-bottom: 0;
+    font-size: 8px;
+  }
+
+  .pour-section {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .pour-section .content-heading {
+    padding: 0 2px;
+  }
+
+  .metrics-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-radius: 14px;
+  }
+
+  .metric,
+  .metric:nth-child(3n) {
+    min-height: 72px;
+    padding: 11px 9px;
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .metric:nth-child(3n) {
+    border-right: 0;
+  }
+
+  .metric:nth-child(n + 4) {
+    border-bottom: 0;
+  }
+
+  .metric span {
+    font-size: 8px;
+    line-height: 1.2;
+  }
+
+  .metric strong {
+    margin-top: 6px;
+    font-size: 24px;
+  }
+
+  .metric small {
+    margin-left: 3px;
+    font-size: 9px;
+  }
+
+  .ice-card {
+    padding: 14px;
+    grid-template-columns: 72px 1fr;
+    gap: 12px;
+    border-radius: 18px;
+  }
+
+  .ice-visual span {
+    font-size: 31px;
+  }
+
+  .ice-visual small {
+    font-size: 8px;
+  }
+
+  .ice-card h2 {
+    font-size: 19px;
+    line-height: 1.15;
+  }
+
+  .ice-card p {
+    margin: 6px 0 4px;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .ice-card > div:last-child > small {
+    font-size: 9px;
+  }
+
+  .pour-list {
+    gap: 8px;
+  }
+
+  .pour-list li {
+    min-height: 0;
+    padding: 11px;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 8px 10px;
+    border-radius: 14px;
+  }
+
+  .pour-number {
+    width: 32px;
+    height: 32px;
+    font-size: 15px;
+  }
+
+  .pour-title {
+    gap: 2px;
+  }
+
+  .pour-title strong {
+    font-size: 17px;
+  }
+
+  .pour-list dl {
+    grid-column: 2;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .pour-list dl > div {
+    gap: 3px;
+  }
+
+  .pour-list dt {
+    font-size: 8px;
+  }
+
+  .pour-list dd {
+    font-size: 10px;
+  }
+
+  .bean-details dl > div {
+    padding: 8px 0;
+  }
+
+  .bean-details dt {
+    font-size: 9px;
+  }
+
+  .bean-details dd {
+    font-size: 11px;
+  }
+
+  .flavor-tags {
+    margin-top: 12px;
+  }
+
+  .flavor-tags span {
+    padding: 5px 8px;
+  }
+
+  .delivery-card {
+    padding: 18px;
+    border-radius: 18px;
+  }
+
+  .delivery-icon {
+    width: 38px;
+    height: 38px;
+    margin-bottom: 14px;
+  }
+
+  .delivery-card h2,
+  .feedback-card h2 {
+    font-size: 23px;
+  }
+
+  .delivery-card p {
+    margin: 8px 0 14px;
+  }
+
+  .feedback-card > p:not(.section-kicker) {
+    margin: 6px 0 12px;
+  }
+
+  .feedback-buttons button {
+    min-height: 46px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .v60-cone,
   .brew-orbit,

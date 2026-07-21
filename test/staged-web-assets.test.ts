@@ -118,6 +118,15 @@ describe("staged production web assets", () => {
     expect(script).toContain("IntersectionObserver");
   });
 
+  it("ships the compact mobile recipe-result hierarchy", () => {
+    const stylesheet = readFileSync(join(assetsDist, stylesheets[0] ?? ""), "utf8");
+
+    expect(stylesheet).toContain(".recipe-page{padding-bottom:96px}");
+    expect(stylesheet).toContain(".metrics-grid{grid-template-columns:repeat(3,minmax(0,1fr))");
+    expect(stylesheet).toContain(".metric,.metric:nth-child(3n){min-height:72px");
+    expect(stylesheet).toContain(".pour-list dl{grid-column:2;grid-template-columns:repeat(4");
+  });
+
   it("serves the new JavaScript untouched because the legacy patch is path-scoped", async () => {
     const scriptPath = scripts[0] ?? "";
     const script = readFileSync(join(assetsDist, scriptPath), "utf8");
