@@ -1,5 +1,8 @@
 node_modules/
 dist/
+!public-url/dist/
+!public-url/dist/_worker.js
+!public-url/dist/.assetsignore
 .wrangler/
 .dev.vars
 *.tsbuildinfo
