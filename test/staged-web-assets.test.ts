@@ -125,15 +125,20 @@ describe("staged production web assets", () => {
     expect(stylesheet).toContain(".metrics-grid{grid-template-columns:repeat(3,minmax(0,1fr))");
     expect(stylesheet).toContain(".metric,.metric:nth-child(3n){min-height:72px");
     expect(stylesheet).toContain(".pour-list dl{grid-column:2;grid-template-columns:repeat(4");
+    expect(stylesheet).toContain(
+      "input,select,textarea{min-width:0;max-width:100%;font-size:16px}",
+    );
   });
 
-  it("removes the two redundant visual labels without removing their controls", () => {
+  it("removes drink-size selection and taste-feedback controls", () => {
     const script = readFileSync(join(assetsDist, scripts[0] ?? ""), "utf8");
 
     expect(script).not.toContain("Total Drink ml");
     expect(script).not.toContain("Taste feedback");
-    expect(script).toContain("Drink size");
-    expect(script).toContain("How was the cup?");
+    expect(script).not.toContain("Drink size");
+    expect(script).not.toContain("How was the cup?");
+    expect(script).not.toContain("Re-tune this recipe");
+    expect(script).toContain("Back for a New Recipe");
   });
 
   it("serves the new JavaScript untouched because the legacy patch is path-scoped", async () => {

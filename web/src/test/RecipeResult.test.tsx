@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import RecipeResult from "../components/RecipeResult.js";
 import type { Recipe } from "../types.js";
@@ -6,23 +6,7 @@ import type { Recipe } from "../types.js";
 vi.mock("../api.js", () => ({
   apiCreateBridgeJob: vi.fn().mockResolvedValue({ id: "j1", status: "pending" }),
   apiGetBridgeJob: vi.fn().mockResolvedValue({ id: "j1", status: "pending" }),
-  apiRateRecipe: vi.fn(),
-  apiRetuneRecipe: vi.fn(),
-  ApiError: class ApiError extends Error {
-    code: string;
-    status: number;
-    constructor(message: string, code: string, status: number) {
-      super(message);
-      this.code = code;
-      this.status = status;
-    }
-  },
 }));
-
-import { ApiError, apiRateRecipe, apiRetuneRecipe } from "../api.js";
-
-const mockRateRecipe = vi.mocked(apiRateRecipe);
-const mockRetuneRecipe = vi.mocked(apiRetuneRecipe);
 
 const BASE_BEAN = {
   storeName: "Sample Roaster",
@@ -144,11 +128,6 @@ const RECIPE_ID = "abc123";
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
-  mockRateRecipe.mockImplementation(async (_recipeId, value, complaint) => ({
-    rating: value === 0 ? null : value,
-    complaint: value === -1 ? (complaint ?? null) : null,
-  }));
-  mockRetuneRecipe.mockRejectedValue(new ApiError("Could not re-tune this recipe.", "FAILED", 500));
   // Provide clipboard mock
   Object.assign(navigator, {
     clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -279,53 +258,14 @@ describe("RecipeResult — adaptive recipe metadata", () => {
   });
 });
 
-describe("RecipeResult — taste feedback", () => {
-  it("keeps the rating controls without the redundant feedback kicker", () => {
+describe("RecipeResult — removed feedback feature", () => {
+  it("does not render rating, complaint, or re-tune controls", () => {
     render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     expect(screen.queryByText("Taste feedback")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "How was the cup?" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /good/i })).toBeInTheDocument();
-  });
-
-  it("opens the complaint choices before saving a Needs work rating", () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
-    fireEvent.click(screen.getByRole("button", { name: /needs work/i }));
-    expect(screen.getByText(/what was wrong/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /re-tune this recipe/i })).toBeDisabled();
-    expect(mockRateRecipe).not.toHaveBeenCalled();
-  });
-
-  it("saves the selected complaint through the rating endpoint", async () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
-    fireEvent.click(screen.getByRole("button", { name: /needs work/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Sour" }));
-
-    await waitFor(() => {
-      expect(mockRateRecipe).toHaveBeenCalledWith(RECIPE_ID, -1, "sour");
-    });
-    expect(screen.getByRole("button", { name: /re-tune this recipe/i })).toBeEnabled();
-  });
-
-  it("toggles a Good rating through the rating endpoint", async () => {
-    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
-    const good = screen.getByRole("button", { name: /good/i });
-    fireEvent.click(good);
-    await waitFor(() => expect(mockRateRecipe).toHaveBeenLastCalledWith(RECIPE_ID, 1, null));
-    fireEvent.click(good);
-    await waitFor(() => expect(mockRateRecipe).toHaveBeenLastCalledWith(RECIPE_ID, 0, null));
-  });
-
-  it("calls the retune endpoint for a stored low-rating complaint", async () => {
-    const needsWorkRecipe: Recipe = {
-      ...COLD_RECIPE,
-      rating: -1,
-      ratingComplaint: "weak",
-    };
-    render(<RecipeResult recipe={needsWorkRecipe} recipeId={RECIPE_ID} />);
-    fireEvent.click(screen.getByRole("button", { name: /re-tune this recipe/i }));
-
-    await waitFor(() => expect(mockRetuneRecipe).toHaveBeenCalledWith(RECIPE_ID));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/could not re-tune/i);
+    expect(screen.queryByRole("heading", { name: "How was the cup?" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /good/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /needs work/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /re-tune this recipe/i })).not.toBeInTheDocument();
   });
 
   it("hides feedback and delivery in read-only mode while preserving the admin back link", () => {

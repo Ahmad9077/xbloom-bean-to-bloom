@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { ApiError, apiRateRecipe, apiRetuneRecipe } from "../api.js";
-import type { Recipe, RecipeComplaint, RecipeRating } from "../types.js";
+import type { Recipe } from "../types.js";
 import CloudBridge from "./CloudBridge.js";
 import PourTimeline from "./PourTimeline.js";
 
@@ -20,13 +19,6 @@ const PROFILE_LABEL: Record<string, { emoji: string; label: string }> = {
   dark_roasty: { emoji: "🍫", label: "Dark & roasty" },
 };
 
-const COMPLAINT_CHOICES: Array<{ value: RecipeComplaint; label: string }> = [
-  { value: "sour", label: "Sour" },
-  { value: "bitter", label: "Bitter" },
-  { value: "weak", label: "Weak / no taste" },
-  { value: "harsh", label: "Harsh" },
-];
-
 interface Props {
   recipe: Recipe;
   recipeId: string;
@@ -43,12 +35,6 @@ export default function RecipeResult({
   backLabel = "Back for a New Recipe",
 }: Props) {
   const isIced = recipe.brewMode === "cold";
-  const [rating, setRating] = useState<RecipeRating>(recipe.rating ?? null);
-  const [complaint, setComplaint] = useState<RecipeComplaint | null>(
-    recipe.ratingComplaint ?? null,
-  );
-  const [feedbackError, setFeedbackError] = useState<string | null>(null);
-  const [retuning, setRetuning] = useState(false);
   const [isCached] = useState(() => {
     try {
       const cached = sessionStorage.getItem("xbloom:cachedRecipe") === recipeId;
@@ -62,60 +48,6 @@ export default function RecipeResult({
   const profile = recipe.profile
     ? (PROFILE_LABEL[recipe.profile] ?? { emoji: "☕", label: recipe.profile })
     : null;
-
-  async function saveRating(
-    nextValue: Exclude<RecipeRating, null> | 0,
-    nextComplaint: RecipeComplaint | null = null,
-  ) {
-    setFeedbackError(null);
-    setRating(nextValue === 0 ? null : nextValue);
-    setComplaint(nextValue === -1 ? nextComplaint : null);
-
-    try {
-      const saved = await apiRateRecipe(recipeId, nextValue, nextComplaint);
-      setRating(saved.rating);
-      setComplaint(saved.complaint);
-    } catch (error) {
-      setFeedbackError(error instanceof ApiError ? error.message : "Could not save rating.");
-    }
-  }
-
-  function chooseRating(nextRating: 1 | -1) {
-    if (nextRating === 1) {
-      void saveRating(rating === 1 ? 0 : 1);
-      return;
-    }
-
-    setRating(-1);
-    setComplaint(null);
-    setFeedbackError(null);
-  }
-
-  async function retuneRecipe() {
-    if (!complaint) {
-      setFeedbackError("Choose what was wrong first.");
-      return;
-    }
-
-    setRetuning(true);
-    setFeedbackError(null);
-    try {
-      const result = await apiRetuneRecipe(recipeId);
-      if (result.cached) {
-        try {
-          sessionStorage.setItem("xbloom:cachedRecipe", result.id);
-        } catch {
-          // Session storage is a visual hint only; navigation must still succeed.
-        }
-      }
-      window.location.assign(`/recipes/${encodeURIComponent(result.id)}`);
-    } catch (error) {
-      setFeedbackError(
-        error instanceof ApiError ? error.message : "Could not re-tune this recipe.",
-      );
-      setRetuning(false);
-    }
-  }
 
   return (
     <main className="recipe-page">
@@ -200,55 +132,9 @@ export default function RecipeResult({
 
           {!readOnly && <CloudBridge recipeId={recipeId} />}
 
-          {!readOnly && (
-            <section className="feedback-card" aria-labelledby="feedback-heading">
-              <h2 id="feedback-heading">How was the cup?</h2>
-              <p>Your feedback helps calibrate future recipes.</p>
-              <div className="feedback-buttons">
-                <button type="button" aria-pressed={rating === 1} onClick={() => chooseRating(1)}>
-                  👍 <span>Good</span>
-                </button>
-                <button type="button" aria-pressed={rating === -1} onClick={() => chooseRating(-1)}>
-                  👎 <span>Needs work</span>
-                </button>
-              </div>
-
-              {rating === -1 && (
-                <div className="complaint-panel">
-                  <span>What was wrong?</span>
-                  <div>
-                    {COMPLAINT_CHOICES.map((choice) => (
-                      <button
-                        key={choice.value}
-                        type="button"
-                        aria-pressed={complaint === choice.value}
-                        onClick={() => void saveRating(-1, choice.value)}
-                      >
-                        {choice.label}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    className="retune-button"
-                    disabled={!complaint || retuning}
-                    onClick={() => void retuneRecipe()}
-                  >
-                    {retuning ? "Re-tuning…" : "Re-tune this recipe"}
-                  </button>
-                </div>
-              )}
-
-              {feedbackError && (
-                <p role="alert" className="feedback-error">
-                  {feedbackError}
-                </p>
-              )}
-            </section>
-          )}
-
-          <a className="secondary-action full-width" href={backHref}>
-            {backLabel}
+          <a className="secondary-action full-width recipe-back-action" href={backHref}>
+            <span aria-hidden="true">←</span>
+            <strong>{backLabel}</strong>
           </a>
         </aside>
       </div>

@@ -5,10 +5,6 @@ import type { ConfirmationRecipeDetails, PendingRecipeConfirmation, RoastLevel }
 const STORE_NAME_MAX_CHARS = 40;
 const BEAN_NAME_MAX_CHARS = 60;
 
-const COLD_DRINK_SIZES = [240, 270, 300, 330, 360] as const;
-const HOT_STRONG_DRINK_SIZES = [210, 224, 238, 252, 266] as const;
-const HOT_SOFT_DRINK_SIZES = [210, 225, 240, 255, 270] as const;
-
 const PROCESSING_METHODS = [
   "washed",
   "natural",
@@ -115,15 +111,8 @@ export default function ConfirmationDialog({
     validRoastLevel(confirmation.bean.roastLevel),
   );
 
-  const drinkSizes =
-    confirmation.brewMode === "cold"
-      ? COLD_DRINK_SIZES
-      : confirmation.strength === "strong"
-        ? HOT_STRONG_DRINK_SIZES
-        : HOT_SOFT_DRINK_SIZES;
   const defaultDrinkSize =
     confirmation.brewMode === "cold" ? 300 : confirmation.strength === "strong" ? 252 : 255;
-  const [drinkMl, setDrinkMl] = useState(defaultDrinkSize);
 
   const selectedProfile = confirmation.suggestedProfile || "neutral_classic";
   const profileOption = confirmation.profileOptions?.find(
@@ -188,7 +177,7 @@ export default function ConfirmationDialog({
   function submitConfirmation() {
     if (!canConfirm || submitting) return;
     const details: ConfirmationRecipeDetails = {
-      finalDrinkMl: drinkMl,
+      finalDrinkMl: defaultDrinkSize,
       roastLevel,
     };
     if (needsOrigin) details.origin = origin.trim();
@@ -356,24 +345,6 @@ export default function ConfirmationDialog({
                 <strong>{confirmation.strength === "strong" ? "Strong" : "Soft"}</strong>
               </span>
             </div>
-            <fieldset className="drink-size-fieldset" disabled={submitting}>
-              <legend className="sr-only">Drink size</legend>
-              <div>
-                {drinkSizes.map((size) => (
-                  <label key={size} className={drinkMl === size ? "selected" : ""}>
-                    <input
-                      className="sr-only"
-                      type="radio"
-                      name="drink-size"
-                      value={size}
-                      checked={drinkMl === size}
-                      onChange={() => setDrinkMl(size)}
-                    />
-                    <span>{size}</span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
           </section>
 
           {error ? (

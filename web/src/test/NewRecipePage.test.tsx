@@ -251,7 +251,7 @@ describe("NewRecipePage — scan and confirmation contract", () => {
     expect(screen.getByDisplayValue("Umq")).toHaveAttribute("maxlength", "40");
     expect(screen.getByDisplayValue("Yemen Haraz")).toHaveAttribute("maxlength", "60");
     expect(screen.queryByText("Total Drink ml")).not.toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Drink size" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Drink size" })).not.toBeInTheDocument();
   });
 
   it("shows only missing metadata fields plus the always-required roast selector", async () => {
@@ -319,7 +319,7 @@ describe("NewRecipePage — scan and confirmation contract", () => {
     expect(screen.getByTestId("recipe-page")).toBeInTheDocument();
   });
 
-  it("uses the exact Hot Strong menu and default", async () => {
+  it("submits the established Hot Strong default without a size selector", async () => {
     mockApiCreateRecipe.mockResolvedValue({
       ...PENDING_CONFIRMATION,
       brewMode: "hot",
@@ -332,14 +332,21 @@ describe("NewRecipePage — scan and confirmation contract", () => {
     await uploadPhotoAndSubmit();
     const dialog = await screen.findByRole("dialog");
 
-    for (const size of [210, 224, 238, 252, 266]) {
-      expect(within(dialog).getByRole("radio", { name: String(size) })).toBeInTheDocument();
-    }
-    expect(within(dialog).getByRole("radio", { name: "252" })).toBeChecked();
-    expect(within(dialog).queryByRole("radio", { name: "255" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("group", { name: "Drink size" })).not.toBeInTheDocument();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /confirm and create recipe/i }),
+    );
+    await waitFor(() =>
+      expect(mockApiConfirmRecipe).toHaveBeenCalledWith(
+        PENDING_CONFIRMATION.confirmationId,
+        "Umq",
+        "Yemen Haraz",
+        { finalDrinkMl: 252, roastLevel: "light" },
+      ),
+    );
   });
 
-  it("uses the exact Hot Soft menu and default", async () => {
+  it("submits the established Hot Soft default without a size selector", async () => {
     mockApiCreateRecipe.mockResolvedValue({
       ...PENDING_CONFIRMATION,
       brewMode: "hot",
@@ -353,10 +360,18 @@ describe("NewRecipePage — scan and confirmation contract", () => {
     await uploadPhotoAndSubmit();
     const dialog = await screen.findByRole("dialog");
 
-    for (const size of [210, 225, 240, 255, 270]) {
-      expect(within(dialog).getByRole("radio", { name: String(size) })).toBeInTheDocument();
-    }
-    expect(within(dialog).getByRole("radio", { name: "255" })).toBeChecked();
+    expect(within(dialog).queryByRole("group", { name: "Drink size" })).not.toBeInTheDocument();
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /confirm and create recipe/i }),
+    );
+    await waitFor(() =>
+      expect(mockApiConfirmRecipe).toHaveBeenCalledWith(
+        PENDING_CONFIRMATION.confirmationId,
+        "Umq",
+        "Yemen Haraz",
+        { finalDrinkMl: 255, roastLevel: "light" },
+      ),
+    );
   });
 
   it("returns to the form when Cancel is selected", async () => {
