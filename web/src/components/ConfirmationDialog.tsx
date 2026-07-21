@@ -357,7 +357,7 @@ export default function ConfirmationDialog({
               </span>
             </div>
             <fieldset className="drink-size-fieldset" disabled={submitting}>
-              <legend>Total Drink ml</legend>
+              <legend className="sr-only">Drink size</legend>
               <div>
                 {drinkSizes.map((size) => (
                   <label key={size} className={drinkMl === size ? "selected" : ""}>

@@ -5102,6 +5102,38 @@ async function patchFrontendAssetResponse(request, assetResponse, headers) {
 __name(patchFrontendAssetResponse, "patchFrontendAssetResponse");
 var PROTECTED_SPA_PREFIXES = ["/history", "/recipes", "/admin"];
 var PUBLIC_PATHS = /* @__PURE__ */ new Set(["/login", "/health"]);
+var LEGACY_PUBLIC_HOST = "xbloom-recipe-worker.bean-to-bloom.workers.dev";
+var DEFAULT_CANONICAL_ORIGIN = "https://brew.bean-to-bloom.workers.dev";
+function isPublicPagePath(pathname) {
+  return pathname === "/" || pathname === "/login" || pathname === "/history" || pathname === "/recipes" || pathname.startsWith("/recipes/") || pathname === "/admin" || pathname.startsWith("/admin/");
+}
+__name(isPublicPagePath, "isPublicPagePath");
+function canonicalOrigin(configuredOrigin) {
+  if (!configuredOrigin?.trim()) return DEFAULT_CANONICAL_ORIGIN;
+  try {
+    const parsed = new URL(configuredOrigin.trim());
+    const isOriginOnly = parsed.protocol === "https:" && parsed.username === "" && parsed.password === "" && parsed.pathname === "/" && parsed.search === "" && parsed.hash === "";
+    if (isOriginOnly && parsed.hostname !== LEGACY_PUBLIC_HOST) return parsed.origin;
+  } catch {
+  }
+  return DEFAULT_CANONICAL_ORIGIN;
+}
+__name(canonicalOrigin, "canonicalOrigin");
+function redirectLegacyPage(request, configuredOrigin) {
+  const method = request.method.toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return null;
+  const source = new URL(request.url);
+  if (source.hostname !== LEGACY_PUBLIC_HOST || !isPublicPagePath(source.pathname)) return null;
+  const destination = new URL(`${source.pathname}${source.search}`, canonicalOrigin(configuredOrigin));
+  return new Response(null, {
+    status: 308,
+    headers: {
+      Location: destination.toString(),
+      "Cache-Control": "public, max-age=86400"
+    }
+  });
+}
+__name(redirectLegacyPage, "redirectLegacyPage");
 function isProtectedSpaRoute(pathname) {
   if (PUBLIC_PATHS.has(pathname)) return false;
   if (pathname.startsWith("/api/") || pathname.startsWith("/v1/")) return false;
@@ -5119,6 +5151,8 @@ var index_default = {
     const url = new URL(request.url);
     const { pathname } = url;
     const method = request.method.toUpperCase();
+    const canonicalRedirect = redirectLegacyPage(request, env.CANONICAL_ORIGIN);
+    if (canonicalRedirect) return canonicalRedirect;
     const allowedOrigins = parseAllowedOrigins(env.ALLOWED_ORIGINS);
     const origin = request.headers.get("Origin");
     const corsHeaders = buildCorsHeaders(origin, allowedOrigins);

@@ -1,0 +1,20 @@
+name = "brew"
+account_id = "cb8327c64dd8aba791c042b403b7e766"
+main = "src/public-alias.ts"
+compatibility_date = "2024-09-23"
+workers_dev = true
+preview_urls = false
+
+[[services]]
+binding = "APP"
+service = "xbloom-recipe-worker"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true

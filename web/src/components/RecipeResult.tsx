@@ -202,7 +202,6 @@ export default function RecipeResult({
 
           {!readOnly && (
             <section className="feedback-card" aria-labelledby="feedback-heading">
-              <p className="section-kicker">Taste feedback</p>
               <h2 id="feedback-heading">How was the cup?</h2>
               <p>Your feedback helps calibrate future recipes.</p>
               <div className="feedback-buttons">

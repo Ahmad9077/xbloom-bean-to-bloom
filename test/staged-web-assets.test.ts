@@ -127,6 +127,15 @@ describe("staged production web assets", () => {
     expect(stylesheet).toContain(".pour-list dl{grid-column:2;grid-template-columns:repeat(4");
   });
 
+  it("removes the two redundant visual labels without removing their controls", () => {
+    const script = readFileSync(join(assetsDist, scripts[0] ?? ""), "utf8");
+
+    expect(script).not.toContain("Total Drink ml");
+    expect(script).not.toContain("Taste feedback");
+    expect(script).toContain("Drink size");
+    expect(script).toContain("How was the cup?");
+  });
+
   it("serves the new JavaScript untouched because the legacy patch is path-scoped", async () => {
     const scriptPath = scripts[0] ?? "";
     const script = readFileSync(join(assetsDist, scriptPath), "utf8");

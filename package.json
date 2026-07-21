@@ -7,6 +7,7 @@
     "dev": "wrangler dev",
     "validate": "node scripts/validate-recipe-table.mjs",
     "deploy": "npm run validate && npm run check:web && npm run build:web && npm run stage:web && npm run verify:web-assets && wrangler deploy",
+    "deploy:public-url": "npm run check && wrangler deploy --config wrangler.public.toml",
     "migrate:remote": "wrangler d1 migrations apply xbloom-db --remote",
     "migrate:local": "wrangler d1 migrations apply xbloom-db --local",
     "build:web": "npm --prefix web run build",

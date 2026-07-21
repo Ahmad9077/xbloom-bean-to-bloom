@@ -7,6 +7,8 @@ export interface Env {
   readonly DB: D1Database;
   readonly ASSETS?: Fetcher;
   readonly ALLOWED_ORIGINS?: string;
+  /** Branded public origin used only to redirect legacy browser page URLs. */
+  readonly CANONICAL_ORIGIN?: string;
   readonly TURNSTILE_SECRET_KEY?: string;
   /** Server-side OpenAI API key. Must be configured as a Worker secret. */
   readonly OPENAI_API_KEY?: string;

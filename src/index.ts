@@ -1,4 +1,5 @@
 import { requireAuth } from "./auth/middleware.js";
+import { redirectLegacyPage } from "./canonical-url.js";
 import { buildCorsHeaders, handlePreflight, parseAllowedOrigins } from "./cors.js";
 import {
   AppError,
@@ -87,6 +88,9 @@ export default {
     const url = new URL(request.url);
     const { pathname } = url;
     const method = request.method.toUpperCase();
+
+    const canonicalRedirect = redirectLegacyPage(request, env.CANONICAL_ORIGIN);
+    if (canonicalRedirect) return canonicalRedirect;
 
     const allowedOrigins = parseAllowedOrigins(env.ALLOWED_ORIGINS);
     const origin = request.headers.get("Origin");

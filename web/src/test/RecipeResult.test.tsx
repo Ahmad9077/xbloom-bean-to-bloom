@@ -280,6 +280,13 @@ describe("RecipeResult — adaptive recipe metadata", () => {
 });
 
 describe("RecipeResult — taste feedback", () => {
+  it("keeps the rating controls without the redundant feedback kicker", () => {
+    render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
+    expect(screen.queryByText("Taste feedback")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "How was the cup?" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /good/i })).toBeInTheDocument();
+  });
+
   it("opens the complaint choices before saving a Needs work rating", () => {
     render(<RecipeResult recipe={COLD_RECIPE} recipeId={RECIPE_ID} />);
     fireEvent.click(screen.getByRole("button", { name: /needs work/i }));

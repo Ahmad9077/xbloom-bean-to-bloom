@@ -148,6 +148,7 @@ npm run check          # typecheck + lint + test
 npm run audit:high     # security audit
 npm run dev            # local Worker dev (port 8787)
 npm run deploy         # build SPA + deploy Worker
+npm run deploy:public-url # deploy the short branded URL proxy
 ```
 
 ### Secrets (set via Wrangler, never in source)
@@ -172,7 +173,10 @@ links on `share-h5.xbloom.com` are accepted and returned to the recipe owner.
 
 ## Production deployment on this Mac
 
-- Worker and SPA: `https://xbloom-recipe-worker.wld-cba.workers.dev`
+- Public app: `https://brew.bean-to-bloom.workers.dev`
+- Legacy browser URL: `https://xbloom-recipe-worker.bean-to-bloom.workers.dev` permanently redirects page paths to the public app
+- Integration Worker: `xbloom-recipe-worker` continues serving `/api/*`, `/health`, and static files on the legacy host so the Mac bridge and already-open clients are not disrupted
+- `CANONICAL_ORIGIN` is the non-secret Worker variable that controls the legacy page redirect; unsafe values fall back to the public app above
 - D1 database: `xbloom-db`; migrations run with `npm run migrate:remote`
 - Durable bridge runtime: `~/.codex/xbloom-bridge/app`
 - LaunchAgent: `~/Library/LaunchAgents/com.xbloom.bean-to-bloom-bridge.plist`

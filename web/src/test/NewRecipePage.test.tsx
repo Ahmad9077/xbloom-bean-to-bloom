@@ -250,6 +250,8 @@ describe("NewRecipePage — scan and confirmation contract", () => {
     expect(screen.getByRole("heading", { name: "Confirm Below Details" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("Umq")).toHaveAttribute("maxlength", "40");
     expect(screen.getByDisplayValue("Yemen Haraz")).toHaveAttribute("maxlength", "60");
+    expect(screen.queryByText("Total Drink ml")).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Drink size" })).toBeInTheDocument();
   });
 
   it("shows only missing metadata fields plus the always-required roast selector", async () => {

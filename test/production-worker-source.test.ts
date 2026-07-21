@@ -74,6 +74,22 @@ describe("production Worker source safeguards", () => {
     expect(workerSource).toContain('throw new NotFoundError("Route not found")');
   });
 
+  it("redirects only legacy browser pages to the branded public Worker", () => {
+    expect(workerSource).toContain(
+      'var LEGACY_PUBLIC_HOST = "xbloom-recipe-worker.bean-to-bloom.workers.dev";',
+    );
+    expect(workerSource).toContain(
+      'var DEFAULT_CANONICAL_ORIGIN = "https://brew.bean-to-bloom.workers.dev";',
+    );
+    expect(workerSource).toContain("function redirectLegacyPage(request, configuredOrigin)");
+    expect(workerSource).toContain('pathname.startsWith("/recipes/")');
+    expect(workerSource).toContain('pathname.startsWith("/admin/")');
+    expect(workerSource).toContain("status: 308");
+    expect(workerSource).toContain(
+      "const canonicalRedirect = redirectLegacyPage(request, env.CANONICAL_ORIGIN);",
+    );
+  });
+
   it("does not accept manual brew profile overrides from confirmation requests", () => {
     expect(workerSource).not.toContain("manualProfileProvided");
     expect(workerSource).not.toContain("manual profile override");
