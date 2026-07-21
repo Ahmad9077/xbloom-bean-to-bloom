@@ -79,7 +79,7 @@ describe("production Worker source safeguards", () => {
       'var LEGACY_PUBLIC_HOST = "xbloom-recipe-worker.bean-to-bloom.workers.dev";',
     );
     expect(workerSource).toContain(
-      'var DEFAULT_CANONICAL_ORIGIN = "https://brew.bean-to-bloom.workers.dev";',
+      'var DEFAULT_CANONICAL_ORIGIN = "https://beantobloom.pages.dev";',
     );
     expect(workerSource).toContain("function redirectLegacyPage(request, configuredOrigin)");
     expect(workerSource).toContain('pathname.startsWith("/recipes/")');

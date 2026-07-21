@@ -20,7 +20,7 @@ run_worker_first = true
 
 [vars]
 ALLOWED_ORIGINS = "http://localhost:3000,http://localhost:8787"
-CANONICAL_ORIGIN = "https://brew.bean-to-bloom.workers.dev"
+CANONICAL_ORIGIN = "https://beantobloom.pages.dev"
 RECIPE_ENGINE = "table"
 
 [triggers]

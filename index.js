@@ -5103,7 +5103,7 @@ __name(patchFrontendAssetResponse, "patchFrontendAssetResponse");
 var PROTECTED_SPA_PREFIXES = ["/history", "/recipes", "/admin"];
 var PUBLIC_PATHS = /* @__PURE__ */ new Set(["/login", "/health"]);
 var LEGACY_PUBLIC_HOST = "xbloom-recipe-worker.bean-to-bloom.workers.dev";
-var DEFAULT_CANONICAL_ORIGIN = "https://brew.bean-to-bloom.workers.dev";
+var DEFAULT_CANONICAL_ORIGIN = "https://beantobloom.pages.dev";
 function isPublicPagePath(pathname) {
   return pathname === "/" || pathname === "/login" || pathname === "/history" || pathname === "/recipes" || pathname.startsWith("/recipes/") || pathname === "/admin" || pathname.startsWith("/admin/");
 }

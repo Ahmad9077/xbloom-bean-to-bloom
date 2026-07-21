@@ -1,5 +1,5 @@
 export const LEGACY_PUBLIC_HOST = "xbloom-recipe-worker.bean-to-bloom.workers.dev";
-export const DEFAULT_CANONICAL_ORIGIN = "https://brew.bean-to-bloom.workers.dev";
+export const DEFAULT_CANONICAL_ORIGIN = "https://beantobloom.pages.dev";
 
 function isPublicPagePath(pathname: string): boolean {
   return (

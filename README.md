@@ -173,10 +173,11 @@ links on `share-h5.xbloom.com` are accepted and returned to the recipe owner.
 
 ## Production deployment on this Mac
 
-- Public app: `https://brew.bean-to-bloom.workers.dev`
+- Public app: `https://beantobloom.pages.dev`
 - Legacy browser URL: `https://xbloom-recipe-worker.bean-to-bloom.workers.dev` permanently redirects page paths to the public app
 - Integration Worker: `xbloom-recipe-worker` continues serving `/api/*`, `/health`, and static files on the legacy host so the Mac bridge and already-open clients are not disrupted
 - `CANONICAL_ORIGIN` is the non-secret Worker variable that controls the legacy page redirect; unsafe values fall back to the public app above
+- The public Pages Function forwards internally to `xbloom-recipe-worker` through a Cloudflare Service Binding; no application secrets are copied to Pages
 - D1 database: `xbloom-db`; migrations run with `npm run migrate:remote`
 - Durable bridge runtime: `~/.codex/xbloom-bridge/app`
 - LaunchAgent: `~/Library/LaunchAgents/com.xbloom.bean-to-bloom-bridge.plist`
