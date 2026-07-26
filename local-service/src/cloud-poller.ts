@@ -1,4 +1,5 @@
-import { toErrorCode, toLocalDiagnostic, toSafeMessage } from "./errors.js";
+import { probeXbloomApiConnectivity } from "./connectivity.js";
+import { ErrorCode, toErrorCode, toLocalDiagnostic, toSafeMessage } from "./errors.js";
 import { log } from "./logger.js";
 import { SerialQueue } from "./queue.js";
 import { runRecipeAutomation } from "./runner.js";
@@ -20,6 +21,11 @@ interface NextResponse {
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_POLL_BACKOFF_MS = 60_000;
+
+interface CloudPollerDependencies {
+  probeConnectivity?: typeof probeXbloomApiConnectivity;
+  runAutomation?: typeof runRecipeAutomation;
+}
 
 export function computePollDelayMs(baseDelayMs: number, consecutiveFailures: number): number {
   const base = Math.max(1000, baseDelayMs);
@@ -89,7 +95,10 @@ async function checkpoint(
   if (!response.ok) throw new Error(`Cloud checkpoint returned HTTP ${response.status}`);
 }
 
-export function startCloudPoller(config: Config): () => void {
+export function startCloudPoller(
+  config: Config,
+  dependencies: CloudPollerDependencies = {},
+): () => void {
   if (!config.cloudWorkerUrl || !config.bridgeToken) {
     log.info("Cloud bridge poller disabled", { stage: "cloud_poller_disabled" });
     return () => {};
@@ -102,6 +111,8 @@ export function startCloudPoller(config: Config): () => void {
   const queue = new SerialQueue(1);
 
   const basePollIntervalMs = config.bridgePollIntervalMs ?? 5000;
+  const probeConnectivity = dependencies.probeConnectivity ?? probeXbloomApiConnectivity;
+  const runAutomation = dependencies.runAutomation ?? runRecipeAutomation;
   const schedule = (delayMs = basePollIntervalMs) => {
     if (!stopped) timer = setTimeout(poll, delayMs);
   };
@@ -110,6 +121,24 @@ export function startCloudPoller(config: Config): () => void {
     if (stopped || busy) return;
     busy = true;
     try {
+      // Never claim a cloud job while the emulator cannot reach xBloom. A
+      // broken emulator DNS forwarder otherwise allows Save to succeed but
+      // guarantees official share-link generation will fail afterward.
+      const connectivity = await probeConnectivity();
+      if (!connectivity.ok) {
+        consecutiveFailures += 1;
+        if (consecutiveFailures === 1 || (consecutiveFailures & (consecutiveFailures - 1)) === 0) {
+          log.warn("Emulator cannot reach the xBloom API; cloud jobs remain unclaimed", {
+            stage: "emulator_network_unready",
+            failedHost: connectivity.failedHost ?? "unknown",
+            reason: connectivity.reason ?? "unknown",
+            consecutiveFailures,
+            retryInMs: computePollDelayMs(basePollIntervalMs, consecutiveFailures),
+          });
+        }
+        return;
+      }
+
       const response = await cloudFetch(config, "/api/bridge/jobs/next");
       if (!response.ok) throw new Error(`Cloud queue returned HTTP ${response.status}`);
       const payload = (await response.json()) as NextResponse;
@@ -132,7 +161,7 @@ export function startCloudPoller(config: Config): () => void {
       try {
         const validated = validateRequest({ recipe: job.recipe, confirmSave: true });
         const result = await queue.run(() =>
-          runRecipeAutomation(config, validated.recipe, job.id, {
+          runAutomation(config, validated.recipe, job.id, {
             dryRun: false,
             confirmSave: true,
             resumeSavedRecipe: job.saveStarted || job.recipeSaved,
@@ -144,10 +173,23 @@ export function startCloudPoller(config: Config): () => void {
         log.info("Cloud bridge job completed", { stage: "cloud_job_completed", jobId: job.id });
       } catch (error) {
         const message = toSafeMessage(error);
+        const errorCode = toErrorCode(error);
+        if (errorCode === ErrorCode.XBLOOM_NETWORK_UNAVAILABLE) {
+          // Keep the claimed lease intact. The Worker safely requeues it after
+          // the stale-claim window, and its saved checkpoint makes the next
+          // attempt resume at sharing instead of Save.
+          log.warn("xBloom connectivity was lost during a bridge job; deferring safely", {
+            stage: "cloud_job_network_deferred",
+            jobId: job.id,
+            errorCode,
+            diagnostic: toLocalDiagnostic(error),
+          });
+          return;
+        }
         log.error("Cloud bridge job failed", {
           stage: "cloud_job_failed",
           jobId: job.id,
-          errorCode: toErrorCode(error),
+          errorCode,
           errorType: error instanceof Error ? error.name : "unknown",
           diagnostic: toLocalDiagnostic(error),
         });

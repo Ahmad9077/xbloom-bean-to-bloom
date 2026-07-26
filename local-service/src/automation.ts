@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { probeXbloomApiConnectivity } from "./connectivity.js";
 import type { Driver } from "./driver.js";
 import { ErrorCode, ServiceError } from "./errors.js";
 import { log } from "./logger.js";
@@ -451,6 +452,69 @@ async function openCreatedRecipe(driver: Driver, recipeName: string, jobId: stri
   log.info("Saved recipe opened from Created recipes", { jobId, stage: "share_recipe_open" });
 }
 
+const XBLOOM_SHARE_LINK_RE = /https:\/\/share-h5\.xbloom\.com\/\?id=[^\s]+/;
+
+export function parseXbloomShareLink(clipboard: string): string | undefined {
+  const match = XBLOOM_SHARE_LINK_RE.exec(clipboard);
+  if (!match) return undefined;
+  try {
+    const shareUrl = new URL(match[0]);
+    if (shareUrl.protocol !== "https:" || shareUrl.hostname !== "share-h5.xbloom.com") {
+      return undefined;
+    }
+    return shareUrl.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+export async function waitForXbloomShareLink(
+  driver: Driver,
+  attempts = 10,
+  intervalMs = 750,
+): Promise<string | undefined> {
+  let successfulRead = false;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await driver.pause(intervalMs);
+    try {
+      const encodedClipboard = await driver.getClipboard("plaintext");
+      successfulRead = true;
+      const clipboard = Buffer.from(encodedClipboard, "base64").toString("utf8");
+      const link = parseXbloomShareLink(clipboard);
+      if (link) return link;
+    } catch {
+      // A transient clipboard read must not fail the whole share operation.
+    }
+  }
+
+  if (!successfulRead) {
+    throw new ServiceError(
+      ErrorCode.SHARE_LINK_FAILED,
+      "xBloom created the share action but its link could not be read. Please try again.",
+      503,
+    );
+  }
+  return undefined;
+}
+
+export async function clearXbloomShareClipboard(driver: Driver, attempts = 2): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await driver.setClipboard(Buffer.from("").toString("base64"), "plaintext");
+      const encodedClipboard = await driver.getClipboard("plaintext");
+      if (Buffer.from(encodedClipboard, "base64").toString("utf8") === "") return;
+    } catch {
+      // Retry once. We must prove the clipboard is empty before asking xBloom
+      // to copy a new link, or a stale official URL could be returned.
+    }
+  }
+  throw new ServiceError(
+    ErrorCode.SHARE_LINK_FAILED,
+    "The Mac bridge could not prepare xBloom link sharing. Please try again.",
+    503,
+  );
+}
+
 async function createShareLinkFromOpenRecipe(driver: Driver, jobId: string): Promise<string> {
   const shareButton = await driver.$(sel("shareIv"));
   try {
@@ -458,13 +522,12 @@ async function createShareLinkFromOpenRecipe(driver: Driver, jobId: string): Pro
     await shareButton.click();
     const shareGrid = await driver.$(sel("shareRcv"));
     await shareGrid.waitForDisplayed({ timeout: 8000 });
-    await driver.setClipboard(Buffer.from("").toString("base64"), "plaintext").catch(() => {});
+    await clearXbloomShareClipboard(driver);
     const linkItem = await driver.$(
       `android=new UiSelector().resourceId("${PKG}:id/nameTv").text("Link")`,
     );
     await linkItem.waitForDisplayed({ timeout: 8000 });
     await linkItem.click();
-    await driver.pause(1000);
   } catch {
     throw new ServiceError(
       ErrorCode.SHARE_LINK_FAILED,
@@ -473,35 +536,47 @@ async function createShareLinkFromOpenRecipe(driver: Driver, jobId: string): Pro
     );
   }
 
-  let encodedClipboard: string;
-  try {
-    encodedClipboard = await driver.getClipboard("plaintext");
-  } catch {
-    throw new ServiceError(
-      ErrorCode.SHARE_LINK_FAILED,
-      "xBloom created the share action but its link could not be read. Please try again.",
-      503,
-    );
-  }
-  const clipboard = Buffer.from(encodedClipboard, "base64").toString("utf8");
-  const match = /https:\/\/share-h5\.xbloom\.com\/\?id=[^\s]+/.exec(clipboard);
-  if (!match) {
+  const link = await waitForXbloomShareLink(driver);
+  if (!link) {
+    const connectivity = await probeXbloomApiConnectivity();
+    if (!connectivity.ok) {
+      throw new ServiceError(
+        ErrorCode.XBLOOM_NETWORK_UNAVAILABLE,
+        `The Android emulator could not reach ${connectivity.failedHost ?? "the xBloom API"}`,
+        503,
+      );
+    }
     throw new ServiceError(
       ErrorCode.SHARE_LINK_FAILED,
       "xBloom did not create a share link. Please try again.",
       503,
     );
   }
-  const shareUrl = new URL(match[0]);
-  if (shareUrl.protocol !== "https:" || shareUrl.hostname !== "share-h5.xbloom.com") {
-    throw new ServiceError(
-      ErrorCode.SHARE_LINK_FAILED,
-      "xBloom returned an invalid share link",
-      500,
-    );
-  }
   log.info("xBloom share link created", { jobId, stage: "share_link_done" });
-  return shareUrl.toString();
+  return link;
+}
+
+export async function withShareConnectivityClassification(
+  operation: () => Promise<string>,
+  probeConnectivity = probeXbloomApiConnectivity,
+): Promise<string> {
+  try {
+    return await operation();
+  } catch (error) {
+    // Once Save may have happened, connectivity wins over the surface error.
+    // WebDriver can report missing UI, clipboard, or session errors when the
+    // native app is really waiting on xBloom's API. Deferring the claimed job
+    // preserves its save checkpoint and prevents a duplicate on retry.
+    const connectivity = await probeConnectivity();
+    if (!connectivity.ok) {
+      throw new ServiceError(
+        ErrorCode.XBLOOM_NETWORK_UNAVAILABLE,
+        `The Android emulator could not reach ${connectivity.failedHost ?? "the xBloom API"}`,
+        503,
+      );
+    }
+    throw error;
+  }
 }
 
 async function createShareLink(driver: Driver, recipeName: string, jobId: string): Promise<string> {
@@ -617,7 +692,11 @@ export async function createRecipe(
   const appRecipeName = normalizeRecipeNameForApp(recipe.name);
   if (opts.resumeSavedRecipe) {
     log.info("Resuming at xBloom share-link creation", { jobId, stage: "share_resume" });
-    return { shareLink: await createShareLink(driver, appRecipeName, jobId) };
+    return {
+      shareLink: await withShareConnectivityClassification(() =>
+        createShareLink(driver, appRecipeName, jobId),
+      ),
+    };
   }
   await navigateToRecipes(driver, jobId);
   await clickCreate(driver, jobId);
@@ -655,12 +734,8 @@ export async function createRecipe(
 
   if (opts.confirmSave) {
     return {
-      shareLink: await saveRecipe(
-        driver,
-        appRecipeName,
-        jobId,
-        opts.onBeforeSave,
-        opts.onRecipeSaved,
+      shareLink: await withShareConnectivityClassification(() =>
+        saveRecipe(driver, appRecipeName, jobId, opts.onBeforeSave, opts.onRecipeSaved),
       ),
     };
   }

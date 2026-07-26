@@ -4,6 +4,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+source ./lib/bridge-watchdog.sh
+
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator"
@@ -14,6 +16,9 @@ if [[ -z "${BRIDGE_TOKEN:-}" ]]; then
 fi
 
 AVD_NAME="${XBLOOM_AVD_NAME:-xBloom_Pixel8_API35}"
+XBLOOM_DNS_SERVERS="${XBLOOM_DNS_SERVERS:-1.1.1.1,8.8.8.8}"
+XBLOOM_API_HOSTS="${XBLOOM_API_HOSTS:-client-api.xbloom.com,backend-api.xbloom.com}"
+export XBLOOM_API_HOSTS
 RUNTIME_DIR="${XBLOOM_RUNTIME_DIR:-$HOME/.codex/xbloom-bridge}"
 mkdir -p "$RUNTIME_DIR"
 chmod 700 "$RUNTIME_DIR"
@@ -57,9 +62,11 @@ ensure_appium_uiautomator2_driver
 emulator_pid=""
 appium_pid=""
 service_pid=""
+watchdog_pid=""
 
 cleanup() {
   if [[ -n "$service_pid" ]]; then kill "$service_pid" 2>/dev/null || true; fi
+  if [[ -n "$watchdog_pid" ]]; then kill "$watchdog_pid" 2>/dev/null || true; fi
   if [[ -n "$appium_pid" ]]; then kill "$appium_pid" 2>/dev/null || true; fi
   if [[ -n "$emulator_pid" ]]; then kill "$emulator_pid" 2>/dev/null || true; fi
 }
@@ -67,7 +74,7 @@ trap cleanup EXIT INT TERM
 
 start_emulator() {
   emulator -avd "$AVD_NAME" -no-window -no-audio -no-boot-anim \
-    -no-snapshot-load -no-snapshot-save -gpu auto \
+    -no-snapshot-load -no-snapshot-save -gpu auto -dns-server "$XBLOOM_DNS_SERVERS" \
     >>"$RUNTIME_DIR/emulator.log" 2>&1 &
   emulator_pid="$!"
 }
@@ -96,6 +103,30 @@ if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" 
   exit 1
 fi
 
+xbloom_network_ready() {
+  local host
+  local hosts="${XBLOOM_API_HOSTS//,/ }"
+  for host in $hosts; do
+    if ! adb -s emulator-5554 shell toybox nc -z -w 4 "$host" 443 >/dev/null 2>&1; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+# Do not start the queue poller until DNS and TCP work from inside Android.
+# This catches a stale emulator DNS forwarder before a cloud job can be claimed.
+for _ in {1..12}; do
+  if xbloom_network_ready; then break; fi
+  sleep 5
+done
+
+if ! xbloom_network_ready; then
+  echo "Android emulator cannot reach the xBloom API; restarting the stack" >&2
+  adb -s emulator-5554 emu kill >/dev/null 2>&1 || true
+  exit 1
+fi
+
 if ! curl --silent --fail http://127.0.0.1:4723/status >/dev/null 2>&1; then
   appium --address 127.0.0.1 --port 4723 >>"$RUNTIME_DIR/appium.log" 2>&1 &
   appium_pid="$!"
@@ -111,6 +142,36 @@ if ! curl --silent --fail http://127.0.0.1:4723/status >/dev/null 2>&1; then
   exit 1
 fi
 
-node --import tsx/esm --env-file .env src/server.ts &
+NODE_BIN="${XBLOOM_NODE_BIN:-}"
+if [[ -z "$NODE_BIN" ]] && [[ -x /opt/homebrew/opt/node@22/bin/node ]] && \
+   /opt/homebrew/opt/node@22/bin/node --version >/dev/null 2>&1; then
+  NODE_BIN=/opt/homebrew/opt/node@22/bin/node
+fi
+NODE_BIN="${NODE_BIN:-$(command -v node)}"
+
+"$NODE_BIN" --import tsx/esm --env-file .env src/server.ts &
 service_pid="$!"
+
+# The virtual DNS proxy can become stale after host network changes. Two
+# consecutive failures trigger a supervised cold restart, but never while an
+# Appium session is active. launchd then starts the stack with fresh DNS.
+(
+  failures=0
+  while kill -0 "$service_pid" 2>/dev/null; do
+    sleep 60
+    if xbloom_network_ready; then
+      failures=0
+      continue
+    fi
+    failures=$((failures + 1))
+    echo "xBloom emulator network check failed ($failures/2)" >&2
+    if [[ "$failures" -ge 2 ]] && ! has_active_uiautomator2_session; then
+      echo "Restarting bridge stack to recover emulator DNS" >&2
+      adb -s emulator-5554 emu kill >/dev/null 2>&1 || true
+      kill "$service_pid" 2>/dev/null || true
+      break
+    fi
+  done
+) &
+watchdog_pid="$!"
 wait "$service_pid"

@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  clearXbloomShareClipboard,
   normalizePauseSecForApp,
   normalizeRecipeNameForApp,
+  parseXbloomShareLink,
   verifyRecipeTotals,
+  waitForXbloomShareLink,
+  withShareConnectivityClassification,
 } from "../src/automation.js";
-import { ErrorCode } from "../src/errors.js";
+import { ErrorCode, ServiceError } from "../src/errors.js";
 
 function makeTotalsDriver(options: {
   current: string;
@@ -93,6 +97,85 @@ describe("normalizeRecipeNameForApp", () => {
     const name = `${"a".repeat(29)}☕tail`;
     expect(Array.from(normalizeRecipeNameForApp(name))).toHaveLength(30);
     expect(normalizeRecipeNameForApp(name)).toBe(`${"a".repeat(29)}☕`);
+  });
+});
+
+describe("xBloom share-link extraction", () => {
+  it("accepts only the official xBloom share host", () => {
+    expect(parseXbloomShareLink("https://share-h5.xbloom.com/?id=abc123")).toBe(
+      "https://share-h5.xbloom.com/?id=abc123",
+    );
+    expect(parseXbloomShareLink("https://example.com/?id=abc123")).toBeUndefined();
+  });
+
+  it("waits for xBloom to copy a link asynchronously", async () => {
+    const getClipboard = vi
+      .fn()
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce(
+        Buffer.from("https://share-h5.xbloom.com/?id=delayed").toString("base64"),
+      );
+    const driver = { getClipboard, pause: vi.fn().mockResolvedValue(undefined) };
+
+    await expect(waitForXbloomShareLink(driver as never, 3, 0)).resolves.toBe(
+      "https://share-h5.xbloom.com/?id=delayed",
+    );
+    expect(getClipboard).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not reuse unrelated clipboard contents", async () => {
+    const driver = {
+      getClipboard: vi
+        .fn()
+        .mockResolvedValue(Buffer.from("https://example.com/stale").toString("base64")),
+      pause: vi.fn().mockResolvedValue(undefined),
+    };
+    await expect(waitForXbloomShareLink(driver as never, 2, 0)).resolves.toBeUndefined();
+  });
+
+  it("proves the clipboard is empty before requesting a new xBloom link", async () => {
+    const driver = {
+      setClipboard: vi.fn().mockResolvedValue(undefined),
+      getClipboard: vi.fn().mockResolvedValue(""),
+    };
+    await expect(clearXbloomShareClipboard(driver as never)).resolves.toBeUndefined();
+    expect(driver.setClipboard).toHaveBeenCalledOnce();
+    expect(driver.getClipboard).toHaveBeenCalledOnce();
+  });
+
+  it("aborts instead of accepting a stale official xBloom link", async () => {
+    const staleLink = Buffer.from("https://share-h5.xbloom.com/?id=stale").toString("base64");
+    const driver = {
+      setClipboard: vi.fn().mockRejectedValue(new Error("clipboard unavailable")),
+      getClipboard: vi.fn().mockResolvedValue(staleLink),
+    };
+    await expect(clearXbloomShareClipboard(driver as never, 2)).rejects.toMatchObject({
+      code: ErrorCode.SHARE_LINK_FAILED,
+    });
+  });
+});
+
+describe("xBloom share failure classification", () => {
+  it("defers safely when connectivity is lost anywhere in post-save sharing", async () => {
+    const operation = vi.fn().mockRejectedValue(new Error("WebDriver session failed"));
+    const probe = vi.fn().mockResolvedValue({
+      ok: false,
+      failedHost: "client-api.xbloom.com",
+      reason: "dns_or_tcp_unreachable",
+    });
+
+    await expect(withShareConnectivityClassification(operation, probe)).rejects.toMatchObject({
+      code: ErrorCode.XBLOOM_NETWORK_UNAVAILABLE,
+    });
+  });
+
+  it("preserves a genuine share failure while connectivity is healthy", async () => {
+    const original = new ServiceError(ErrorCode.SHARE_LINK_FAILED, "share UI failed", 503);
+    const operation = vi.fn().mockRejectedValue(original);
+
+    await expect(
+      withShareConnectivityClassification(operation, vi.fn().mockResolvedValue({ ok: true })),
+    ).rejects.toBe(original);
   });
 });
 

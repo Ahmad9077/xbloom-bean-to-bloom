@@ -12,6 +12,7 @@ export const ErrorCode = {
   SLIDER_SET_FAILED: "SLIDER_SET_FAILED",
   SAVE_FAILED: "SAVE_FAILED",
   SHARE_LINK_FAILED: "SHARE_LINK_FAILED",
+  XBLOOM_NETWORK_UNAVAILABLE: "XBLOOM_NETWORK_UNAVAILABLE",
   IDEMPOTENCY_CONFLICT: "IDEMPOTENCY_CONFLICT",
   QUEUE_FULL: "QUEUE_FULL",
   INTERNAL_ERROR: "INTERNAL_ERROR",
@@ -45,6 +46,8 @@ export function toSafeMessage(err: unknown): string {
       case ErrorCode.SHARE_LINK_FAILED:
         // These messages are fixed, user-facing strings produced by automation.ts.
         return err.message;
+      case ErrorCode.XBLOOM_NETWORK_UNAVAILABLE:
+        return "The Mac bridge is waiting for xBloom's online service to reconnect. Please do not retry; this recipe will continue automatically.";
       case ErrorCode.APP_VERSION_UNSUPPORTED:
       case ErrorCode.APP_VERSION_CHECK_FAILED:
         return "The Mac bridge needs an xBloom app update or maintenance before it can continue.";

@@ -10,8 +10,11 @@ type CloudBridgeState =
   | { kind: "failed"; error?: string }
   | { kind: "apiError"; message: string };
 
-const POLL_INTERVAL_MS = 5_000;
-const MAX_POLLS = 72; // 6 minutes
+export const POLL_INTERVAL_MS = 5_000;
+// A claimed bridge job is safely requeued after the Worker's 10-minute stale
+// lease. Keep watching long enough to observe that recovery plus a full
+// share-only retry, so the open page cannot freeze in its last claimed state.
+export const MAX_POLLS = 216; // 18 minutes
 
 interface Props {
   recipeId: string;

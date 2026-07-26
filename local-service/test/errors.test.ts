@@ -28,6 +28,18 @@ describe("toSafeMessage", () => {
     expect(message).toBe("xBloom did not create a share link. Please try again.");
   });
 
+  it("tells users not to retry during an xBloom network outage", () => {
+    const message = toSafeMessage(
+      new ServiceError(
+        ErrorCode.XBLOOM_NETWORK_UNAVAILABLE,
+        "Unable to resolve client-api.xbloom.com",
+        503,
+      ),
+    );
+    expect(message).toMatch(/do not retry/i);
+    expect(message).not.toContain("client-api.xbloom.com");
+  });
+
   it("does not expose internal recipe validation details", () => {
     const message = toSafeMessage(
       new ServiceError(

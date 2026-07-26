@@ -5,7 +5,8 @@ Binds to `127.0.0.1` only. Never expose to a network interface.
 
 Production uses the authenticated Cloudflare bridge queue. `run-stack.sh` boots the
 headless Android emulator, starts Appium with the Android SDK environment, and starts
-the poller. The bridge bearer token is read from macOS Keychain at runtime. The legacy
+the poller. It verifies xBloom API reachability from inside Android before claiming jobs
+and supervises the emulator DNS path. The bridge bearer token is read from macOS Keychain at runtime. The legacy
 loopback HTTP route remains available for local diagnostics only.
 
 ## Supported app version
@@ -31,6 +32,11 @@ appium
 
 The xBloom Studio app must already be installed and logged in on the connected device or
 emulator before starting any job.
+
+Production prefers Node.js 22 LTS when installed. `run-stack.sh` launches the AVD with
+explicit public DNS resolvers and restarts the supervised stack after two consecutive
+idle-time xBloom API failures. Override these non-secret defaults with
+`XBLOOM_NODE_BIN`, `XBLOOM_DNS_SERVERS`, or `XBLOOM_API_HOSTS` when required.
 
 ## Setup
 

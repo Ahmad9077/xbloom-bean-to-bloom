@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import CloudBridge from "../components/CloudBridge.js";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import CloudBridge, { MAX_POLLS, POLL_INTERVAL_MS } from "../components/CloudBridge.js";
 
 vi.mock("../api.js", () => ({
   apiCreateBridgeJob: vi.fn(),
@@ -24,6 +24,10 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("CloudBridge — initial state", () => {
   it("shows connecting state initially", async () => {
     mockCreate.mockImplementation(() => new Promise(() => {}));
@@ -33,6 +37,53 @@ describe("CloudBridge — initial state", () => {
 });
 
 describe("CloudBridge — pending state", () => {
+  it("keeps polling beyond the Worker's ten-minute stale-lease window", () => {
+    expect(MAX_POLLS * POLL_INTERVAL_MS).toBeGreaterThan(10 * 60 * 1000);
+  });
+
+  it("observes a share link that completes after stale-lease recovery", async () => {
+    vi.useFakeTimers();
+    mockCreate.mockResolvedValue({
+      id: "j-late",
+      recipeId: "r1",
+      status: "claimed",
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    let polls = 0;
+    mockGet.mockImplementation(async () => {
+      polls += 1;
+      if (polls <= 121) {
+        return {
+          id: "j-late",
+          recipeId: "r1",
+          status: "claimed",
+          createdAt: 0,
+          updatedAt: 0,
+        };
+      }
+      return {
+        id: "j-late",
+        recipeId: "r1",
+        status: "completed",
+        shareLink: "https://share-h5.xbloom.com/?id=late",
+        createdAt: 0,
+        updatedAt: 1,
+      };
+    });
+
+    render(<CloudBridge recipeId="r1" />);
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(122 * POLL_INTERVAL_MS);
+    });
+
+    expect(screen.getByRole("link", { name: /add recipe in xbloom app/i })).toHaveAttribute(
+      "href",
+      "https://share-h5.xbloom.com/?id=late",
+    );
+  });
+
   it("shows pending state after job is created", async () => {
     mockCreate.mockResolvedValue({
       id: "j1",
