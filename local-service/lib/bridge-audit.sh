@@ -298,13 +298,18 @@ check_xbloom_app() {
 # 7b. Local runtime prerequisites (presence only; no installation or changes).
 # ------------------------------------------------------------------
 check_prerequisites() {
-  local node_ok=false appium_ok=false avd_ok=false driver_ok=false
+  local node_ok=false appium_ok=false avd_ok=false driver_ok=false driver_output=""
   command -v node >/dev/null 2>&1 && node_ok=true
   command -v appium >/dev/null 2>&1 && appium_ok=true
   [[ -d "$HOME/.android/avd/${XBLOOM_AVD_NAME:-xBloom_Pixel8_API35}.avd" ]] && avd_ok=true
-  if [[ "$appium_ok" == true ]] && \
-     _run_timed 15 appium driver list --installed 2>/dev/null | grep -q 'uiautomator2@'; then
-    driver_ok=true
+  if [[ "$appium_ok" == true ]]; then
+    # Capture before matching: grep -q can close a live pipe after the first
+    # match, making Appium exit with SIGPIPE under pipefail and producing a
+    # false "driver missing" warning.
+    driver_output=$(_run_timed 15 appium driver list --installed 2>/dev/null || true)
+    if grep -q 'uiautomator2@' <<< "$driver_output"; then
+      driver_ok=true
+    fi
   fi
   if [[ "$node_ok" == true && "$appium_ok" == true && "$avd_ok" == true && "$driver_ok" == true ]]; then
     set_check prerequisites ok '"node":true,"appium":true,"uiautomator2":true,"avd":true'

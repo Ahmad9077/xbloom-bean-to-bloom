@@ -224,6 +224,31 @@ describe("audit report creation", () => {
       rmSync(androidHome, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it("detects UiAutomator2 without a pipefail SIGPIPE false warning", () => {
+    const binDir = join(tmpdir(), `audit-driver-bin-${Date.now()}`);
+    const androidHome = join(tmpdir(), `audit-driver-android-${Date.now()}`);
+    makeFakeBin(binDir, {
+      curl: FAKE_CURL,
+      launchctl: FAKE_LAUNCHCTL,
+      nc: "exit 0",
+      security: "exit 0",
+      appium: `echo 'uiautomator2@8.0.0 [installed]'; for _ in $(seq 1 5000); do echo filler; done`,
+    });
+    makeFakeBin(join(androidHome, "platform-tools"), { adb: FAKE_ADB });
+    writeFileSync(join(binDir, "adb"), `#!/usr/bin/env bash\n${FAKE_ADB}\n`, { mode: 0o755 });
+
+    bash(`bash "${auditPath}"`, makeAuditEnv(binDir, androidHome));
+
+    try {
+      const report = JSON.parse(readFileSync(join(runtimeDir, "audit", "latest.json"), "utf8"));
+      expect(report.checks.prerequisites.status).toBe("ok");
+      expect(report.checks.prerequisites.uiautomator2).toBe(true);
+    } finally {
+      rmSync(binDir, { recursive: true, force: true });
+      rmSync(androidHome, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
 
 // ─── Once-per-Kuwait-day gate ─────────────────────────────────────────────────
