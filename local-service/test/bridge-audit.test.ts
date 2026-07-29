@@ -233,7 +233,7 @@ describe("audit report creation", () => {
       launchctl: FAKE_LAUNCHCTL,
       nc: "exit 0",
       security: "exit 0",
-      appium: `echo 'uiautomator2@8.0.0 [installed]'; for _ in $(seq 1 5000); do echo filler; done`,
+      appium: `echo 'uiautomator2@8.0.0 [installed]' >&2; for _ in $(seq 1 5000); do echo filler >&2; done`,
     });
     makeFakeBin(join(androidHome, "platform-tools"), { adb: FAKE_ADB });
     writeFileSync(join(binDir, "adb"), `#!/usr/bin/env bash\n${FAKE_ADB}\n`, { mode: 0o755 });

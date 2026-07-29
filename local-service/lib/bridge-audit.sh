@@ -306,7 +306,8 @@ check_prerequisites() {
     # Capture before matching: grep -q can close a live pipe after the first
     # match, making Appium exit with SIGPIPE under pipefail and producing a
     # false "driver missing" warning.
-    driver_output=$(_run_timed 15 appium driver list --installed 2>/dev/null || true)
+    # Appium writes its human-readable driver list to stderr.
+    driver_output=$(_run_timed 15 appium driver list --installed 2>&1 || true)
     if grep -q 'uiautomator2@' <<< "$driver_output"; then
       driver_ok=true
     fi
