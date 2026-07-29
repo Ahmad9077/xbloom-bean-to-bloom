@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Durable local xBloom bridge. Replace USER_HOME before installing. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.xbloom.bean-to-bloom-bridge</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>USER_HOME/.codex/xbloom-bridge/app/run-stack.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>USER_HOME/.codex/xbloom-bridge/app</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>15</integer>
+  <!-- Allows run-stack.sh to stop qemu and release the AVD lock cleanly. -->
+  <key>ExitTimeOut</key>
+  <integer>90</integer>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>USER_HOME</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:USER_HOME/Library/Android/sdk/platform-tools:USER_HOME/Library/Android/sdk/emulator</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>USER_HOME/.codex/xbloom-bridge/stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>USER_HOME/.codex/xbloom-bridge/stderr.log</string>
+</dict>
+</plist>

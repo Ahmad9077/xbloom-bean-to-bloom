@@ -36,7 +36,9 @@ emulator before starting any job.
 Production prefers Node.js 22 LTS when installed. `run-stack.sh` launches the AVD with
 explicit public DNS resolvers and restarts the supervised stack after two consecutive
 idle-time xBloom API failures. Override these non-secret defaults with
-`XBLOOM_NODE_BIN`, `XBLOOM_DNS_SERVERS`, or `XBLOOM_API_HOSTS` when required.
+`XBLOOM_NODE_BIN`, `XBLOOM_DNS_SERVERS`, `XBLOOM_API_HOSTS`, or
+`XBLOOM_BOOT_TIMEOUT_SEC` when required. Android boot probes are hard-timed, the default
+boot window is 15 minutes, and repeated boot failures use persistent exponential backoff.
 
 ## Setup
 
@@ -72,6 +74,19 @@ On the deployed Mac this runs from `~/.codex/xbloom-bridge/app` under LaunchAgen
 `com.xbloom.bean-to-bloom-bridge`. This runtime location avoids macOS background-process
 privacy restrictions on Documents. The bridge token is retrieved from macOS Keychain service
 `xBloom Bean to Bloom Bridge Token`, account `bridge`; it is not read from `.env`.
+
+The independent daily health audit is installed with:
+
+```bash
+./install-audit-launchagent.sh
+launchctl bootstrap "gui/$(id -u)" \
+  "$HOME/Library/LaunchAgents/com.xbloom.bean-to-bloom-daily-audit.plist"
+```
+
+It runs at 08:00 Asia/Kuwait and after login when the daily run was missed. Reports are
+kept for 30 days under `~/.codex/xbloom-bridge/audit/`. The audit can only kickstart the
+local bridge after two failed probes and when no UiAutomator2 session is active; it never
+claims jobs or modifies recipes, D1, or cloud state.
 
 ## Security
 

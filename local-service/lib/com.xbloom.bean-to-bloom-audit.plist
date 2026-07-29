@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchAgent template for the daily xBloom bridge health audit.
+  Run install-audit-launchagent.sh to substitute placeholders and install.
+  Do NOT edit AUDIT_SCRIPT_PATH, USER_HOME, ANDROID_HOME_PATH, or
+  XBLOOM_RUNTIME_PATH placeholders by hand.
+
+  Schedule: 08:00 local machine time.  Set the Mac timezone to Asia/Kuwait
+  so this matches 08:00 KWT.  RunAtLoad is true; the script contains an
+  internal once-per-Kuwait-day gate that skips duplicate runs on the same day.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.xbloom.bean-to-bloom-daily-audit</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>AUDIT_SCRIPT_PATH</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>8</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TZ</key>
+    <string>Asia/Kuwait</string>
+    <key>HOME</key>
+    <string>USER_HOME</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:ANDROID_HOME_PATH/platform-tools:ANDROID_HOME_PATH/emulator</string>
+    <key>ANDROID_HOME</key>
+    <string>ANDROID_HOME_PATH</string>
+    <key>ANDROID_SDK_ROOT</key>
+    <string>ANDROID_HOME_PATH</string>
+    <key>XBLOOM_RUNTIME_DIR</key>
+    <string>XBLOOM_RUNTIME_PATH</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>XBLOOM_RUNTIME_PATH/audit/audit.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>XBLOOM_RUNTIME_PATH/audit/audit.log</string>
+</dict>
+</plist>

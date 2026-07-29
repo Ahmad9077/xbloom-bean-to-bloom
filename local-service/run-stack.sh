@@ -4,6 +4,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+source ./lib/bridge-supervisor.sh
 source ./lib/bridge-watchdog.sh
 
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
@@ -19,7 +20,12 @@ AVD_NAME="${XBLOOM_AVD_NAME:-xBloom_Pixel8_API35}"
 XBLOOM_DNS_SERVERS="${XBLOOM_DNS_SERVERS:-1.1.1.1,8.8.8.8}"
 XBLOOM_API_HOSTS="${XBLOOM_API_HOSTS:-client-api.xbloom.com,backend-api.xbloom.com}"
 export XBLOOM_API_HOSTS
+
+# Maximum seconds to wait for the emulator to finish booting (default: 15 min).
+XBLOOM_BOOT_TIMEOUT_SEC="${XBLOOM_BOOT_TIMEOUT_SEC:-900}"
+
 RUNTIME_DIR="${XBLOOM_RUNTIME_DIR:-$HOME/.codex/xbloom-bridge}"
+export XBLOOM_RUNTIME_DIR="$RUNTIME_DIR"
 mkdir -p "$RUNTIME_DIR"
 chmod 700 "$RUNTIME_DIR"
 
@@ -63,14 +69,21 @@ emulator_pid=""
 appium_pid=""
 service_pid=""
 watchdog_pid=""
+cleanup_done=false
 
 cleanup() {
+  [[ "$cleanup_done" == true ]] && return
+  cleanup_done=true
   if [[ -n "$service_pid" ]]; then kill "$service_pid" 2>/dev/null || true; fi
   if [[ -n "$watchdog_pid" ]]; then kill "$watchdog_pid" 2>/dev/null || true; fi
   if [[ -n "$appium_pid" ]]; then kill "$appium_pid" 2>/dev/null || true; fi
-  if [[ -n "$emulator_pid" ]]; then kill "$emulator_pid" 2>/dev/null || true; fi
+  if [[ -n "$emulator_pid" ]] && kill -0 "$emulator_pid" 2>/dev/null; then
+    stop_emulator_and_wait 45 "emulator-5554" "$emulator_pid" || true
+  fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 start_emulator() {
   emulator -avd "$AVD_NAME" -no-window -no-audio -no-boot-anim \
@@ -79,35 +92,66 @@ start_emulator() {
   emulator_pid="$!"
 }
 
-if ! adb get-state >/dev/null 2>&1; then
+find_existing_emulator_pid() {
+  pgrep -f "qemu-system.* -avd ${AVD_NAME}( |$)" 2>/dev/null | head -1 || true
+}
+
+# Adopt an already-running QEMU even if ADB is still offline or has not yet
+# registered the serial. This prevents a second process from opening the AVD.
+emulator_pid="$(find_existing_emulator_pid)"
+
+# Apply persistent backoff before touching the emulator so launchd restart
+# storms from consecutive boot failures decelerate automatically.
+_failures=$(read_boot_failures)
+_backoff=$(compute_boot_backoff_sec "$_failures")
+if [[ "$_backoff" -gt 0 ]]; then
+  echo "Boot-failure backoff: waiting ${_backoff}s after ${_failures} consecutive failure(s)" >&2
+  sleep "$_backoff"
+fi
+
+_adb_state=$(adb_serial_state)
+if [[ -z "$emulator_pid" && "$_adb_state" == "absent" ]]; then
   start_emulator
 fi
 
-for _ in {1..90}; do
-  if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
+# Wait for Android to finish booting.  Each adb probe is bounded by
+# ADB_PROBE_TIMEOUT_SEC so a hung adb cannot stall the whole boot window.
+boot_deadline=$(( $(date +%s) + XBLOOM_BOOT_TIMEOUT_SEC ))
+while [[ $(date +%s) -lt $boot_deadline ]]; do
+  if adb_boot_completed; then
     break
   fi
   # A fast launchd restart can briefly observe the previous supervisor's
-  # emulator before that supervisor finishes shutting it down. If it vanishes
-  # during this boot window, take ownership of a replacement instead of waiting
-  # until timeout with no emulator process.
-  if ! adb get-state >/dev/null 2>&1 && \
-     { [[ -z "$emulator_pid" ]] || ! kill -0 "$emulator_pid" 2>/dev/null; }; then
-    start_emulator
+  # emulator before it finishes shutting down. Take ownership of a replacement
+  # rather than waiting until timeout with no emulator process.
+  if { [[ -z "$emulator_pid" ]] || ! kill -0 "$emulator_pid" 2>/dev/null; }; then
+    emulator_pid="$(find_existing_emulator_pid)"
+    if [[ -z "$emulator_pid" && "$(adb_serial_state)" == "absent" ]]; then
+      start_emulator
+    fi
   fi
   sleep 2
 done
 
-if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]]; then
-  echo "Android emulator did not finish booting" >&2
+if ! adb_boot_completed; then
+  echo "Android emulator did not finish booting within ${XBLOOM_BOOT_TIMEOUT_SEC}s" >&2
+  _new_failures=$(( _failures + 1 ))
+  write_boot_failures "$_new_failures"
+  echo "Recording boot failure #${_new_failures}; next backoff: $(compute_boot_backoff_sec "$_new_failures")s" >&2
+  stop_emulator_and_wait 60 "emulator-5554" "${emulator_pid:-}"
   exit 1
 fi
+
+# Healthy boot: reset the persistent failure counter so transient failures
+# do not compound into an ever-growing cooldown.
+reset_boot_failures
 
 xbloom_network_ready() {
   local host
   local hosts="${XBLOOM_API_HOSTS//,/ }"
   for host in $hosts; do
-    if ! adb -s emulator-5554 shell toybox nc -z -w 4 "$host" 443 >/dev/null 2>&1; then
+    # _run_timed 12 bounds the adb shell command; nc -w 4 bounds the TCP probe itself.
+    if ! _run_timed 12 adb -s emulator-5554 shell toybox nc -z -w 4 "$host" 443 >/dev/null 2>&1; then
       return 1
     fi
   done
@@ -123,21 +167,21 @@ done
 
 if ! xbloom_network_ready; then
   echo "Android emulator cannot reach the xBloom API; restarting the stack" >&2
-  adb -s emulator-5554 emu kill >/dev/null 2>&1 || true
+  stop_emulator_and_wait 60 "emulator-5554" "${emulator_pid:-}"
   exit 1
 fi
 
-if ! curl --silent --fail http://127.0.0.1:4723/status >/dev/null 2>&1; then
+if ! curl --silent --fail --max-time 5 http://127.0.0.1:4723/status >/dev/null 2>&1; then
   appium --address 127.0.0.1 --port 4723 >>"$RUNTIME_DIR/appium.log" 2>&1 &
   appium_pid="$!"
 fi
 
 for _ in {1..30}; do
-  if curl --silent --fail http://127.0.0.1:4723/status >/dev/null 2>&1; then break; fi
+  if curl --silent --fail --max-time 5 http://127.0.0.1:4723/status >/dev/null 2>&1; then break; fi
   sleep 1
 done
 
-if ! curl --silent --fail http://127.0.0.1:4723/status >/dev/null 2>&1; then
+if ! curl --silent --fail --max-time 5 http://127.0.0.1:4723/status >/dev/null 2>&1; then
   echo "Appium did not become ready" >&2
   exit 1
 fi
@@ -152,9 +196,10 @@ NODE_BIN="${NODE_BIN:-$(command -v node)}"
 "$NODE_BIN" --import tsx/esm --env-file .env src/server.ts &
 service_pid="$!"
 
-# The virtual DNS proxy can become stale after host network changes. Two
+# The virtual DNS proxy can become stale after host network changes.  Two
 # consecutive failures trigger a supervised cold restart, but never while an
-# Appium session is active. launchd then starts the stack with fresh DNS.
+# Appium session is active.  launchd then starts the stack with fresh DNS.
+# Each adb probe inside the watchdog is bounded by ADB_PROBE_TIMEOUT_SEC.
 (
   failures=0
   while kill -0 "$service_pid" 2>/dev/null; do
@@ -165,11 +210,21 @@ service_pid="$!"
     fi
     failures=$((failures + 1))
     echo "xBloom emulator network check failed ($failures/2)" >&2
-    if [[ "$failures" -ge 2 ]] && ! has_active_uiautomator2_session; then
-      echo "Restarting bridge stack to recover emulator DNS" >&2
-      adb -s emulator-5554 emu kill >/dev/null 2>&1 || true
-      kill "$service_pid" 2>/dev/null || true
-      break
+    if [[ "$failures" -ge 2 ]]; then
+      session_rc=0
+      has_active_uiautomator2_session || session_rc=$?
+      if [[ "$session_rc" -eq 2 ]]; then
+        echo "Could not verify Appium session state; deferring DNS recovery" >&2
+        continue
+      fi
+      if [[ "$session_rc" -eq 1 ]]; then
+        echo "Restarting bridge stack to recover emulator DNS" >&2
+        # Wait for the emulator to fully vanish so launchd cannot overlap
+        # this instance with the replacement started on the next launch.
+        stop_emulator_and_wait 60 "emulator-5554" "$emulator_pid"
+        kill "$service_pid" 2>/dev/null || true
+        break
+      fi
     fi
   done
 ) &
