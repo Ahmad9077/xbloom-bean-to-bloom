@@ -107,6 +107,35 @@ describe("CloudBridge — pending state", () => {
     });
   });
 
+  it("stops with a retry action instead of spinning forever", async () => {
+    vi.useFakeTimers();
+    mockCreate.mockResolvedValue({
+      id: "j-stalled",
+      recipeId: "r1",
+      status: "pending",
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    mockGet.mockResolvedValue({
+      id: "j-stalled",
+      recipeId: "r1",
+      status: "pending",
+      createdAt: 0,
+      updatedAt: 0,
+    });
+
+    render(<CloudBridge recipeId="r1" />);
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync((MAX_POLLS + 1) * POLL_INTERVAL_MS);
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/could not create the xbloom link/i);
+    expect(
+      screen.getByRole("button", { name: /retry and create xbloom link/i }),
+    ).toBeInTheDocument();
+  });
+
   it("shows user-facing progress without backend implementation details", async () => {
     mockCreate.mockResolvedValue({
       id: "j1",

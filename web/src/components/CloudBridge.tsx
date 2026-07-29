@@ -50,7 +50,12 @@ export default function CloudBridge({ recipeId }: Props) {
 
       async function poll() {
         if (!mountedRef.current) return;
-        if (pollsRef.current >= MAX_POLLS) return;
+        if (pollsRef.current >= MAX_POLLS) {
+          // Never leave the page in an endless progress state. The delivery
+          // job remains idempotent and can be resumed with the retry action.
+          setState({ kind: "failed", error: "Delivery timed out." });
+          return;
+        }
         pollsRef.current++;
 
         let job: BridgeJob | null;
